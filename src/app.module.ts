@@ -21,6 +21,7 @@ import { UnitModule } from './unit/unit.module';
 import { CategoryModule } from './category/category.module';
 import { BrandModule } from './brand/brand.module';
 import { TaxModule } from './tax/tax.module';
+import { BankModule } from './bank/bank.module';
 import { SupplierModule } from './supplier/supplier.module';
 import { ProductModule } from './product/product.module';
 import { StockModule } from './stock/stock.module';
@@ -62,6 +63,7 @@ import { PosModule } from './pos/pos.module';
         CategoryModule,
         BrandModule,
         TaxModule,
+        BankModule,
         SupplierModule,
         ProductModule,
         StockModule,

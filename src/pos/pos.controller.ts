@@ -17,7 +17,7 @@ import { PosService } from './pos.service';
 import { ReceiptService } from './receipt.service';
 import { RegisterSession } from './models/register-session.entity';
 import { Sale } from './models/sale.entity';
-import { CloseRegisterDto, OpenRegisterDto, RegisterListDto, SaleCreateDto, SaleListDto, SaleReturnDto } from './models/pos.dto';
+import { CloseRegisterDto, OpeningCashDto, OpenRegisterDto, RegisterListDto, SaleCreateDto, SaleListDto, SaleReturnDto } from './models/pos.dto';
 
 @ActorTypes(ActorType.CLIENT)
 @Controller('pos')
@@ -43,19 +43,26 @@ export class PosController {
     async currentRegister(@Actor() actor: AuthActor, @Query('clientstore_id') clientstoreId?: number) {
         const store = await this.posService.resolveStore(actor, clientstoreId);
         const session = await this.posService.currentSession(actor);
+        const drawerCash = store.drawer_cash;
         if (!session) {
-            return { session: null };
+            return { session: null, drawer_cash: drawerCash };
         }
         if (session.clientstore_id !== store.id) {
-            return { session: null, open_elsewhere: session.clientstore?.store_name };
+            return { session: null, drawer_cash: drawerCash, open_elsewhere: session.clientstore?.store_name };
         }
-        return { session: await this.posService.sessionSummary(actor, session.id, false) };
+        return { session: await this.posService.sessionSummary(actor, session.id, false), drawer_cash: drawerCash };
     }
 
     @HasPermission('pos_sell')
     @Post('registers/open')
     async openRegister(@Actor() actor: AuthActor, @Body() body: OpenRegisterDto) {
         return this.posService.openSession(actor, body);
+    }
+
+    @HasPermission('pos_sell', 'pos_manage')
+    @Post('registers/opening-cash')
+    async openingCash(@Actor() actor: AuthActor, @Body() body: OpeningCashDto) {
+        return this.posService.setOpeningCash(actor, body);
     }
 
     private registerQuery(actor: AuthActor, body: RegisterListDto, canManage: boolean) {

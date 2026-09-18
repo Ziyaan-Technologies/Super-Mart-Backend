@@ -23,12 +23,12 @@ const vendorRoles: { name: string; legacy: string[]; keys: (key: string) => bool
     {
         name: 'Manager',
         legacy: ['Store Manager'],
-        keys: () => true,
+        keys: (key) => !['banks_create', 'banks_edit', 'banks_delete'].includes(key),
     },
     {
         name: 'Cashier',
         legacy: [],
-        keys: (key) => key === 'pos_sell',
+        keys: (key) => ['pos_sell', 'pos_return'].includes(key),
     },
     {
         name: 'Product Entry',

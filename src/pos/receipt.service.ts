@@ -77,7 +77,7 @@ export class ReceiptService {
         line();
 
         for (const payment of sale.payments) {
-            row(`Paid by ${payment.method}`, this.money(payment.amount));
+            row(`Paid by ${payment.method}${payment.bank_name ? ` (${payment.bank_name})` : ''}`, this.money(payment.amount));
         }
         if (sale.change_amount > 0) row('Change', this.money(sale.change_amount), { bold: true });
         if (sale.refunded_amount > 0) row('Refunded', `-${this.money(sale.refunded_amount)}`, { bold: true });

@@ -98,14 +98,9 @@ export async function seedDemo(manager: EntityManager) {
     });
 
     const mainStore = await manager.save(Clientstore, {
-        vendor: { id: vendor.id }, store_name: 'Main Branch', store_code: 'MAIN', store_phone: '+924200000001',
+        vendor: { id: vendor.id }, store_name: 'Chaman Branch', store_code: 'MAIN', store_phone: '+924200000001',
         address: 'Main Boulevard, Lahore', country: { id: country.id }, city: { id: city.id },
         opening_time: '08:00', closing_time: '23:00', is_active: true,
-    });
-    const branchStore = await manager.save(Clientstore, {
-        vendor: { id: vendor.id }, store_name: 'Gulberg Branch', store_code: 'GLB', store_phone: '+924200000002',
-        address: 'Gulberg III, Lahore', country: { id: country.id }, city: { id: city.id },
-        opening_time: '09:00', closing_time: '22:00', is_active: true,
     });
 
     await manager.save(Client, [
@@ -115,17 +110,17 @@ export async function seedDemo(manager: EntityManager) {
             country: { id: country.id }, city: { id: city.id },
         },
         {
-            client_type: ClientType.SUPERVISOR, full_name: 'Gulberg Manager', email: 'manager@supermart.local', phone: '+923000000002',
+            client_type: ClientType.SUPERVISOR, full_name: 'Chaman Branch Manager', email: 'manager@supermart.local', phone: '+923000000002',
             password: await bcrypt.hash('Manager@123', 12), is_active: true, vendor: { id: vendor.id }, role: { id: managerRole.id },
-            clientstore: { id: branchStore.id }, country: { id: country.id }, city: { id: city.id },
+            clientstore: { id: mainStore.id }, country: { id: country.id }, city: { id: city.id },
         },
         {
-            client_type: ClientType.SUPERVISOR, full_name: 'Main Branch Cashier', email: 'cashier@supermart.local', phone: '+923000000003',
+            client_type: ClientType.SUPERVISOR, full_name: 'Chaman Branch Cashier', email: 'cashier@supermart.local', phone: '+923000000003',
             password: await bcrypt.hash('Cashier@123', 12), is_active: true, vendor: { id: vendor.id }, role: { id: cashierRole.id },
             clientstore: { id: mainStore.id }, country: { id: country.id }, city: { id: city.id },
         },
         {
-            client_type: ClientType.SUPERVISOR, full_name: 'Main Branch Product Entry', email: 'entry@supermart.local', phone: '+923000000004',
+            client_type: ClientType.SUPERVISOR, full_name: 'Chaman Branch Product Entry', email: 'entry@supermart.local', phone: '+923000000004',
             password: await bcrypt.hash('Entry@123', 12), is_active: true, vendor: { id: vendor.id }, role: { id: entryRole.id },
             clientstore: { id: mainStore.id }, country: { id: country.id }, city: { id: city.id },
         },
@@ -176,7 +171,7 @@ export async function seedDemo(manager: EntityManager) {
                         vendor: { id: vendor.id }, product: { id: product.id }, name, sku, barcode,
                         unit_quantity: unitQuantity, cost_price: cost, sale_price: price, reorder_level: reorder, is_active: true,
                     });
-                    const stores = [[mainStore.id, reorder * 4], [branchStore.id, sku === 'COKE-345' ? reorder / 2 : reorder * 2]];
+                    const stores = [[mainStore.id, reorder * 4]];
                     for (const [clientstoreId, quantity] of stores) {
                         await stockService.applyMovement(manager, {
                             vendorId: vendor.id,

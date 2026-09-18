@@ -14,6 +14,7 @@ import { Vendor } from "src/vendor/models/vendor.entity";
 import { Country } from "src/country/models/country.entity";
 import { City } from "src/city/models/city.entity";
 import { Area } from "src/area/models/area.entity";
+import { DecimalTransformer } from "src/common/decimal.transformer";
 
 @Entity('client_stores')
 @Unique('UQ_client_stores_vendor_code', ['vendor', 'store_code'])
@@ -81,6 +82,10 @@ export class Clientstore {
 
   @Column({ default: true })
   is_pos_active: boolean;
+
+  // Cash carried in the counter drawer: the next counter opens with it, closing a counter sets it to the counted cash.
+  @Column({ type: 'decimal', precision: 20, scale: 2, default: 0, transformer: DecimalTransformer })
+  drawer_cash: number;
 
   @Column({ default: false })
   is_delivery_active: boolean;

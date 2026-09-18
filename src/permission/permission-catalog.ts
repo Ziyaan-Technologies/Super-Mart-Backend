@@ -43,6 +43,7 @@ export const VENDOR_PERMISSION_MODULES: CatalogModule[] = [
     { module_name: 'Stock Transfer', key: 'stock_transfers', actions: [...crud, 'dispatch', 'receive'] },
     { module_name: 'Stock Adjustment', key: 'stock_adjustments', actions: [...crud, 'post'] },
     { module_name: 'POS', key: 'pos', actions: ['sell', 'discount', 'return', 'manage'] },
+    { module_name: 'Bank', key: 'banks', actions: crud },
     { module_name: 'Sales', key: 'sales', actions: ['view'] },
 ];
 

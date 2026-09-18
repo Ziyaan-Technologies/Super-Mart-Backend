@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import * as moment from 'moment-timezone';
 import { ActorType, AuthActor } from 'src/common/auth-actor';
 import { documentNumber } from 'src/common/document-number';
@@ -12,13 +12,16 @@ import { ProductVariant } from 'src/product/models/product-variant.entity';
 import { StockService } from 'src/stock/stock.service';
 import { StockMovementType } from 'src/stock/models/stock-movement.entity';
 import { User } from 'src/user/models/user.entity';
+import { Bank } from 'src/bank/models/bank.entity';
+import { Clientstore } from 'src/clientstore/models/clientstore.entity';
+import { ClientType } from 'src/client/models/client.entity';
 import { RegisterSession, RegisterSessionStatus } from './models/register-session.entity';
 import { Sale, SaleStatus } from './models/sale.entity';
 import { SaleItem } from './models/sale-item.entity';
 import { PaymentMethod, SalePayment } from './models/sale-payment.entity';
 import { SaleReturn } from './models/sale-return.entity';
 import { SaleReturnItem } from './models/sale-return-item.entity';
-import { CloseRegisterDto, OpenRegisterDto, SaleCreateDto, SaleLineDto, SaleReturnDto } from './models/pos.dto';
+import { CloseRegisterDto, OpeningCashDto, OpenRegisterDto, SaleCreateDto, SaleLineDto, SaleReturnDto } from './models/pos.dto';
 
 export interface PricedSaleLine {
     variant: ProductVariant;
@@ -78,13 +81,28 @@ export class PosService {
             vendor: { id: store.vendor_id },
             clientstore: { id: store.id },
             cashier: { id: actor.id },
-            opening_cash: roundAmount(body.opening_cash),
+            opening_cash: roundAmount(store.drawer_cash),
             note: body.note || null,
             status: RegisterSessionStatus.OPEN,
             opened_at: new Date(),
         });
         await this.sessionRepository.update(session.id, { session_number: documentNumber('REG', session.id) });
         return this.sessionSummary(actor, session.id, false);
+    }
+
+    // Only the business owner decides how much cash sits in a branch drawer. The new amount also
+    // becomes the opening cash of any counter already open at that branch.
+    async setOpeningCash(actor: AuthActor, body: OpeningCashDto) {
+        if (actor.client_type !== ClientType.OWNER) {
+            throw new ForbiddenException('Only the owner can set the opening cash');
+        }
+        const store = await this.resolveStore(actor, body.clientstore_id);
+        const openingCash = roundAmount(body.opening_cash);
+        await this.dataSource.transaction(async (manager) => {
+            await manager.update(Clientstore, store.id, { drawer_cash: openingCash });
+            await manager.update(RegisterSession, { clientstore: { id: store.id }, status: RegisterSessionStatus.OPEN }, { opening_cash: openingCash });
+        });
+        return { clientstore_id: store.id, drawer_cash: openingCash };
     }
 
     async accessibleSession(actor: AuthActor, id: number, canManage: boolean) {
@@ -154,13 +172,17 @@ export class PosService {
         const totals = await this.sessionTotals(session.id);
         const expectedCash = roundAmount(session.opening_cash + totals.net_cash);
         const closingCash = roundAmount(body.closing_cash);
-        await this.sessionRepository.update(session.id, {
-            status: RegisterSessionStatus.CLOSED,
-            expected_cash: expectedCash,
-            closing_cash: closingCash,
-            cash_difference: roundAmount(closingCash - expectedCash),
-            note: [session.note, body.note].filter(Boolean).join('\n') || null,
-            closed_at: new Date(),
+        await this.dataSource.transaction(async (manager) => {
+            await manager.update(RegisterSession, session.id, {
+                status: RegisterSessionStatus.CLOSED,
+                expected_cash: expectedCash,
+                closing_cash: closingCash,
+                cash_difference: roundAmount(closingCash - expectedCash),
+                note: [session.note, body.note].filter(Boolean).join('\n') || null,
+                closed_at: new Date(),
+            });
+            // The counted cash stays in the drawer and becomes the next counter's opening cash.
+            await manager.update(Clientstore, session.clientstore_id, { drawer_cash: closingCash });
         });
         return this.sessionSummary(actor, session.id, canManage);
     }
@@ -247,6 +269,21 @@ export class PosService {
         return { paid, change: roundAmount(paid - total) };
     }
 
+    private async cardBanks(vendorId: number, payments: { method: PaymentMethod; bank_id?: number }[]) {
+        const cards = payments.filter((payment) => payment.method === PaymentMethod.CARD);
+        if (cards.some((payment) => !payment.bank_id)) {
+            throw new BadRequestException('Select the bank for every card payment');
+        }
+        const ids = [...new Set(cards.map((payment) => Number(payment.bank_id)))];
+        const banks = ids.length
+            ? await this.dataSource.getRepository(Bank).find({ where: { id: In(ids), vendor: { id: vendorId }, is_active: true } })
+            : [];
+        if (banks.length !== ids.length) {
+            throw new BadRequestException('The selected bank is not valid');
+        }
+        return new Map(banks.map((bank) => [bank.id, bank]));
+    }
+
     private async resolveCustomer(manager: EntityManager, vendorId: number, body: SaleCreateDto) {
         if (body.user_id) {
             const user = await manager.findOne(User, { where: { id: body.user_id } });
@@ -287,6 +324,7 @@ export class PosService {
         const priced = this.priceLines(body.items, variants, body.bill_discount);
         const payments = body.payments.filter((payment) => Number(payment.amount) > 0);
         const { paid, change } = this.checkPayments(priced.total_amount, payments);
+        const banks = await this.cardBanks(store.vendor_id, payments);
 
         const saleId = await this.dataSource.transaction(async (manager) => {
             const allowNegative = await this.stockService.allowNegativeStock(manager, store.vendor_id);
@@ -349,6 +387,8 @@ export class PosService {
                 method: payment.method,
                 amount: roundAmount(payment.amount),
                 reference: payment.reference || null,
+                bank: payment.method === PaymentMethod.CARD ? { id: Number(payment.bank_id) } : null,
+                bank_name: payment.method === PaymentMethod.CARD ? banks.get(Number(payment.bank_id)).name : null,
             })));
             await manager.update(Sale, sale.id, { bill_number: billNumber, cost_amount: roundAmount(cost) });
             return sale.id;

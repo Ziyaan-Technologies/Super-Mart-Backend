@@ -10,7 +10,7 @@ cp .env.example .env            # set DB credentials and a long random JWT_SECRE
 mysql -uroot -e "CREATE DATABASE super_mart_dev CHARACTER SET utf8mb4"
 npm run migration:run
 npm run seed                    # permissions, system roles, units, countries, super admin
-npm run seed -- --demo          # optional demo vendor, 2 stores, products and opening stock
+npm run seed -- --demo          # optional demo vendor, 1 store, products and opening stock
 npm run start:dev               # http://localhost:4000/api
 ```
 
@@ -20,9 +20,9 @@ Demo accounts (after `--demo`):
 | --- | --- | --- | --- |
 | Admin | `admin@supermart.local` | `Admin@123` | Super Admin (from `SEED_ADMIN_*`) |
 | Store | `owner@supermart.local` | `Owner@123` | Vendor owner with the Owner role, sees all stores |
-| Store | `manager@supermart.local` | `Manager@123` | Manager, locked to Gulberg Branch |
-| Store | `cashier@supermart.local` | `Cashier@123` | Cashier, locked to Main Branch |
-| Store | `entry@supermart.local` | `Entry@123` | Product Entry, locked to Main Branch |
+| Store | `manager@supermart.local` | `Manager@123` | Manager, locked to Chaman Branch |
+| Store | `cashier@supermart.local` | `Cashier@123` | Cashier, locked to Chaman Branch |
+| Store | `entry@supermart.local` | `Entry@123` | Product Entry, locked to Chaman Branch |
 
 ## Schema changes
 

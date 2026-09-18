@@ -7,13 +7,18 @@ export class OpenRegisterDto {
     @IsInt()
     clientstore_id: number;
 
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    opening_cash: number;
-
     @IsOptional()
     @IsString()
     note: string;
+}
+
+export class OpeningCashDto {
+    @IsInt()
+    clientstore_id: number;
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    opening_cash: number;
 }
 
 export class CloseRegisterDto {
@@ -51,6 +56,10 @@ export class SalePaymentDto {
     @IsOptional()
     @IsString()
     reference: string;
+
+    @IsOptional()
+    @IsInt()
+    bank_id: number;
 }
 
 export class SaleCreateDto {
