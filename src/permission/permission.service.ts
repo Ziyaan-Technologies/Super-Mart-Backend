@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { AbstractService } from 'src/common/abstract.service';
@@ -17,6 +17,20 @@ export class PermissionService extends AbstractService {
             return [];
         }
         return this.permissionRepository.find({ where: { id: In(ids), type } });
+    }
+
+    async assertUniqueKey(permissionKey: string, type: PermissionType, exceptId?: number) {
+        const existing = await this.permissionRepository.findOne({ where: { permission_key: permissionKey, type } });
+        if (existing && existing.id !== exceptId) {
+            throw new BadRequestException(`The key "${permissionKey}" already exists for a ${type} permission`);
+        }
+    }
+
+    async assertNotAssigned(id: number) {
+        const [row] = await this.permissionRepository.query('SELECT COUNT(*) AS count FROM role_permissions WHERE permission_id = ?', [id]);
+        if (Number(row.count)) {
+            throw new BadRequestException('This permission is ticked in a role. Untick it there first.');
+        }
     }
 
     async findModules(type?: PermissionType): Promise<string[]> {

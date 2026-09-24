@@ -8,6 +8,10 @@ export class LoginDto {
     @IsNotEmpty()
     @IsString()
     password: string;
+
+    @IsOptional()
+    @IsString()
+    panel: string;
 }
 
 export class UserLoginDto extends LoginDto {

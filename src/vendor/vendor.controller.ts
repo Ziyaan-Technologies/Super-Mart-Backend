@@ -50,6 +50,8 @@ export class VendorController {
     @HasPermission('store_edit')
     @Put('me')
     async updateMe(@Actor() actor: AuthActor, @Body() body: VendorProfileUpdateDto) {
+        const vendor = await this.me(actor);
+        this.vendorService.assertBusinessTypeChange(vendor.business_type, body.business_type);
         const changes = this.relations(body);
         if (Object.keys(changes).length) {
             await this.vendorService.update(actor.vendor_id, changes);
@@ -116,7 +118,8 @@ export class VendorController {
     @HasPermission('vendors_edit')
     @Put(':id')
     async update(@Param('id') id: number, @Body() body: VendorUpdateDto) {
-        await this.get(id);
+        const vendor = await this.get(id);
+        this.vendorService.assertBusinessTypeChange(vendor.business_type, body.business_type);
         if (body.email) {
             const existing = await this.vendorService.findOne({ email: body.email, id: Not(id) });
             if (existing) {

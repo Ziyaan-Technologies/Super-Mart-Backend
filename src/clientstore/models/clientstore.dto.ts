@@ -17,6 +17,10 @@ export class ClientstoreCreateDto {
 
     @IsOptional()
     @IsString()
+    store_type: string;
+
+    @IsOptional()
+    @IsString()
     store_phone: string;
 
     @IsOptional()

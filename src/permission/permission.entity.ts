@@ -3,6 +3,7 @@ import { Column, Entity, PrimaryGeneratedColumn, Unique } from "typeorm";
 export enum PermissionType {
   ADMIN = 'Admin',
   VENDOR = 'Vendor',
+  ELECTRIC = 'Electric',
 }
 
 @Entity('permissions')

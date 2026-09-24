@@ -170,11 +170,8 @@ export class ClientController {
             throw new BadRequestException('You cannot delete your own account');
         }
         await this.roleService.assertCanManageRole(actor, client.role_id);
-        if (this.clientService.isOwner(client)) {
-            const owners = await this.clientService.count({ vendor: { id: client.vendor_id }, client_type: ClientType.OWNER });
-            if (actor.type === ActorType.CLIENT || owners <= 1) {
-                throw new BadRequestException('The last business owner account cannot be deleted');
-            }
+        if (this.clientService.isOwner(client) && actor.type === ActorType.CLIENT) {
+            throw new BadRequestException('A business owner account can only be deleted from the admin panel');
         }
         return this.clientService.softDelete(client.id);
     }

@@ -20,6 +20,7 @@ export enum BusinessType {
     GROCERY = 'Grocery',
     CONVENIENCE_STORE = 'Convenience Store',
     PHARMACY = 'Pharmacy',
+    ELECTRIC = 'Electric Store',
 }
 
 @Entity('vendors')

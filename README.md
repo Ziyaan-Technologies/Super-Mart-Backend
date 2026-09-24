@@ -8,13 +8,12 @@ NestJS 10 + TypeORM + MySQL API for the Super Mart multi-store platform. It foll
 npm install
 cp .env.example .env            # set DB credentials and a long random JWT_SECRET
 mysql -uroot -e "CREATE DATABASE super_mart_dev CHARACTER SET utf8mb4"
-npm run migration:run
-npm run seed                    # permissions, system roles, units, countries, super admin
-npm run seed -- --demo          # optional demo vendor, 1 store, products and opening stock
 npm run start:dev               # http://localhost:4000/api
 ```
 
-Demo accounts (after `--demo`):
+The database settings live in `app.module.ts`, the same as `Saas_api`. `synchronize` is on, so the tables are created and updated from the entities when the app starts. There are no migrations and no seed scripts: rows such as permissions, roles and demo data are put into the database directly, the same way as in `Saas_api`.
+
+Demo accounts already in the database:
 
 | Panel | Email | Password | Notes |
 | --- | --- | --- | --- |
@@ -23,17 +22,18 @@ Demo accounts (after `--demo`):
 | Store | `manager@supermart.local` | `Manager@123` | Manager, locked to Chaman Branch |
 | Store | `cashier@supermart.local` | `Cashier@123` | Cashier, locked to Chaman Branch |
 | Store | `entry@supermart.local` | `Entry@123` | Product Entry, locked to Chaman Branch |
+| Electric | `owner@electric.local` | `Owner@123` | Owner of Imran Electric Traders, both shops |
+| Electric | `cashier1@electric.local` | `Cashier@123` | Cashier on Counter 1 of the Electric Products Shop |
+
+Electric Store accounts log in with `panel: 'electric'`; Super Mart accounts log in without it.
+
+## Electric Store
+
+Electric clients (business type **Electric Store**) use their own folders, `electric-shop`, `electric-brand`, `electric-category`, `electric-product`, `electric-counter`, `electric-sale`, `electric-quotation`, `electric-user` and the shared `electric-access`, with their own `electric_*` tables and routes under `/api/electric/...`. Their permissions and roles are of type `Electric`, so an electric login cannot use the Super Mart APIs and the other way round.
 
 ## Schema changes
 
-`synchronize` is off. After changing an entity:
-
-```bash
-npm run migration:generate -- src/database/migrations/DescribeChange
-npm run migration:run
-```
-
-`npm run seed` is safe to re-run. It syncs the permission catalog and resets the permissions of the system roles (Super Admin and Manager get every permission).
+`synchronize: true` is set in `app.module.ts`, so a changed entity updates its table when the app restarts.
 
 ## Tenancy
 
@@ -61,9 +61,9 @@ Vendor ── Clientstore (branch) ── Client (Owner | Supervisor) ── Rol
   | `Cashier` | `pos_sell` only |
   | `Product Entry` | Products, categories, brands, suppliers, taxes (view), stock view and opening stock, purchase orders, goods receipts (including post), stock transfers, stock adjustments (without post) |
 
-- The seed **creates** these roles if they are missing and then leaves their permissions alone, so what an admin ticks in the admin panel survives the next `npm run seed`. Only `Super Admin` is reset to every admin permission each run.
+- These roles live in the `roles` table with their ticked permissions in `role_permissions`. New permissions are added to the `permissions` table directly.
 - Admins can add more store roles from the admin panel: a role with a `vendor_id` belongs to that vendor, and one without a `vendor_id` is offered to every vendor. Store staff see both in their role dropdown.
-- Stores cannot create or edit roles; the `roles_*` and `permissions_*` keys are admin-only. The seed also renames older roles in place (`Store Manager` becomes `Manager`, `Inventory Clerk` becomes `Product Entry`) and moves their accounts over.
+- Super Mart stores cannot create or edit roles; the `roles_*` and `permissions_*` keys are admin-only. Electric Store owners build their own roles in their panel.
 - A role cannot be deleted while any account still points at it — including soft-deleted accounts, which the API now reports as a plain message instead of failing.
 - Staff who are not the owner can only grant, or manage accounts with, permissions their own role already has.
 

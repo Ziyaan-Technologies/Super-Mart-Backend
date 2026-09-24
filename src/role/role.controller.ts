@@ -70,7 +70,7 @@ export class RoleController {
     }
 
     private async validPermissions(ids: number[], type: RoleType) {
-        const permissionType = type === RoleType.ADMIN ? PermissionType.ADMIN : PermissionType.VENDOR;
+        const permissionType = type === RoleType.ADMIN ? PermissionType.ADMIN : type === RoleType.ELECTRIC ? PermissionType.ELECTRIC : PermissionType.VENDOR;
         const permissions = await this.permissionService.findByIdsAndType(ids, permissionType);
         if (permissions.length !== (ids || []).length) {
             throw new BadRequestException(`Some permissions are not valid for a ${type} role`);
@@ -132,7 +132,7 @@ export class RoleController {
         let where: any;
         if (actor.type === ActorType.CLIENT) {
             where = this.scopeConditions(actor, {}, {});
-        } else if (type === RoleType.VENDOR) {
+        } else if (type === RoleType.VENDOR || type === RoleType.ELECTRIC) {
             where = vendorId
                 ? [{ type, vendor: { id: vendorId } }, { type, vendor: IsNull() }]
                 : { type, vendor: IsNull() };

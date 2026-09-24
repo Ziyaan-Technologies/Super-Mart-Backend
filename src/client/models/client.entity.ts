@@ -60,6 +60,9 @@ export class Client {
 	@RelationId((client: Client) => client.clientstore)
 	clientstore_id: number;
 
+	@Column({ nullable: true })
+	electric_counter_id: number;
+
 	@ManyToOne(() => Role)
 	@JoinColumn({ name: 'role_id' })
 	role: Role;

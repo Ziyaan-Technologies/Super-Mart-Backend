@@ -5,7 +5,7 @@ import * as bcrypt from 'bcrypt';
 import { AbstractService } from 'src/common/abstract.service';
 import { Client, ClientType } from 'src/client/models/client.entity';
 import { Role, RoleType } from 'src/role/role.entity';
-import { Vendor } from './models/vendor.entity';
+import { BusinessType, Vendor } from './models/vendor.entity';
 import { VendorCreateDto } from './models/vendor.dto';
 
 @Injectable()
@@ -17,10 +17,18 @@ export class VendorService extends AbstractService {
         super(vendorRepository);
     }
 
+    assertBusinessTypeChange(current: BusinessType, next?: BusinessType) {
+        if (next && (current === BusinessType.ELECTRIC) !== (next === BusinessType.ELECTRIC)) {
+            throw new BadRequestException('A client cannot be switched to or from Electric Store after it is created');
+        }
+    }
+
     async createWithOwner(body: VendorCreateDto): Promise<Vendor> {
         const { owner, country_id, city_id, ...data } = body;
+        const electric = data.business_type === BusinessType.ELECTRIC;
+        const roleType = electric ? RoleType.ELECTRIC : RoleType.VENDOR;
         return this.dataSource.transaction(async (manager) => {
-            const ownerRole = await manager.findOne(Role, { where: { name: 'Owner', type: RoleType.VENDOR, is_system: true, vendor: IsNull() } });
+            const ownerRole = await manager.findOne(Role, { where: { name: 'Owner', type: roleType, is_system: true, vendor: IsNull() } });
             if (!ownerRole) {
                 throw new BadRequestException('Owner role is missing. Run the seed script first.');
             }
@@ -46,6 +54,16 @@ export class VendorService extends AbstractService {
                 country: { id: country_id },
                 city: city_id ? { id: city_id } : null,
             });
+            if (electric) {
+                const templates = await manager.find(Role, { where: { type: RoleType.ELECTRIC, is_system: true, vendor: IsNull() }, relations: ['permissions'] });
+                await manager.save(Role, templates.filter((role) => role.name !== 'Owner').map((role) => manager.create(Role, {
+                    name: role.name,
+                    type: RoleType.ELECTRIC,
+                    is_system: false,
+                    vendor: { id: vendor.id },
+                    permissions: role.permissions,
+                })));
+            }
             return vendor;
         });
     }

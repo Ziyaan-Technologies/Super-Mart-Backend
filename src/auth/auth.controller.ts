@@ -5,7 +5,7 @@ import { Actor, ActorType, AuthActor } from 'src/common/auth-actor';
 import { Public } from 'src/common/public.decorator';
 import { Role } from 'src/role/role.entity';
 import { User } from 'src/user/models/user.entity';
-import { Vendor } from 'src/vendor/models/vendor.entity';
+import { BusinessType, Vendor } from 'src/vendor/models/vendor.entity';
 import { AuthService } from './auth.service';
 import { ChangePasswordDto, LoginDto, UpdateProfileDto, UserLoginDto, UserRegisterDto } from './models/login.dto';
 
@@ -52,6 +52,10 @@ export class AuthController {
         const vendor = await this.vendorRepository.findOne({ where: { id: client.vendor_id } });
         if (!vendor || !vendor.is_active) {
             throw new BadRequestException('Your business account is not active. Please contact support.');
+        }
+        const electricAccount = vendor.business_type === BusinessType.ELECTRIC;
+        if (electricAccount !== (body.panel === 'electric')) {
+            throw new BadRequestException(electricAccount ? 'This account is for the Electric Store panel' : 'This account is for the Super Mart panel');
         }
         const token = await this.authService.signToken(client.id, ActorType.CLIENT, client.token_version);
         return {

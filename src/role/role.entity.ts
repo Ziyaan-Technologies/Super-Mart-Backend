@@ -5,6 +5,7 @@ import { Vendor } from "src/vendor/models/vendor.entity";
 export enum RoleType {
   ADMIN = 'Admin',
   VENDOR = 'Vendor',
+  ELECTRIC = 'Electric',
 }
 
 @Entity('roles')

@@ -5,7 +5,10 @@ import { RoleService } from 'src/role/role.service';
 import { ActorType } from 'src/common/auth-actor';
 import { IS_PUBLIC_KEY } from 'src/common/public.decorator';
 import { ACTOR_TYPES_KEY } from 'src/common/actor-types.decorator';
+import { ELECTRIC_API_KEY } from 'src/common/electric-api.decorator';
+import { BusinessType } from 'src/vendor/models/vendor.entity';
 import { PERMISSION_KEY } from './has-permission.decorator';
+import { PermissionType } from './permission.entity';
 
 @Injectable()
 export class PermissionGuard implements CanActivate {
@@ -36,6 +39,11 @@ export class PermissionGuard implements CanActivate {
       throw new ForbiddenException('This endpoint is not available for your account type');
     }
 
+    const electricApi = this.reflector.getAllAndOverride<boolean>(ELECTRIC_API_KEY, targets);
+    if (electricApi && actor.business_type !== BusinessType.ELECTRIC) {
+      throw new ForbiddenException('This endpoint is only for Electric Store accounts');
+    }
+
     const required = this.reflector.getAllAndOverride<string[]>(PERMISSION_KEY, targets);
     if (!required?.length) {
       return true;
@@ -45,7 +53,8 @@ export class PermissionGuard implements CanActivate {
       throw new ForbiddenException('You do not have permission to perform this action');
     }
 
-    const granted = await this.roleService.permissionKeys(actor.role_id);
+    const types = electricApi ? [PermissionType.ELECTRIC] : [PermissionType.ADMIN, PermissionType.VENDOR];
+    const granted = await this.roleService.permissionKeys(actor.role_id, types);
     if (!required.some((key) => granted.has(key))) {
       throw new ForbiddenException(`Missing permission: ${required.join(' or ')}`);
     }

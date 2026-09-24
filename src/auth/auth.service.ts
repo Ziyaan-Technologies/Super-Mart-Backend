@@ -53,7 +53,7 @@ export class AuthService {
             .addSelect('account.token_version')
             .where('account.id = :id', { id: payload.id });
         if (type !== ActorType.ADMIN) {
-            query.leftJoin('account.vendor', 'vendor').addSelect(['vendor.id', 'vendor.is_active']);
+            query.leftJoin('account.vendor', 'vendor').addSelect(['vendor.id', 'vendor.is_active', 'vendor.business_type']);
         }
         const account = await query.getOne();
         if (!account || account.token_version !== payload.ver) {
@@ -69,6 +69,7 @@ export class AuthService {
             vendor_id: account.vendor_id || null,
             clientstore_id: account.clientstore_id || null,
             client_type: account.client_type || null,
+            business_type: account.vendor?.business_type || null,
         };
     }
 

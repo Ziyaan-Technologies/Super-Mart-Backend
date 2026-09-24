@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, NotFoundException, Param, Post, Put, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { Actor, ActorType, AuthActor } from 'src/common/auth-actor';
 import { ActorTypes } from 'src/common/actor-types.decorator';
+import { IsEnum, IsNotEmpty, IsString } from 'class-validator';
 import { buildWhere, ListQueryDto } from 'src/common/list-query';
 import { ExportService } from 'src/common/export.service';
 import { HasPermission } from './has-permission.decorator';
@@ -11,6 +12,23 @@ import { PermissionService } from './permission.service';
 class PermissionListDto extends ListQueryDto {
     moduleName?: string;
     type?: PermissionType;
+}
+
+class PermissionCreateDto {
+    @IsNotEmpty()
+    @IsString()
+    name: string;
+
+    @IsNotEmpty()
+    @IsString()
+    permission_key: string;
+
+    @IsNotEmpty()
+    @IsString()
+    module_name: string;
+
+    @IsEnum(PermissionType)
+    type: PermissionType;
 }
 
 @Controller('permissions')
@@ -91,11 +109,49 @@ export class PermissionController {
     }
 
     @ActorTypes(ActorType.ADMIN)
+    @HasPermission('permissions_create')
+    @Post()
+    async create(@Body() body: PermissionCreateDto) {
+        const permission_key = body.permission_key.trim();
+        await this.permissionService.assertUniqueKey(permission_key, body.type);
+        return this.permissionService.create({
+            name: body.name.trim(),
+            permission_key,
+            module_name: body.module_name.trim(),
+            type: body.type,
+        });
+    }
+
+    @ActorTypes(ActorType.ADMIN)
     @HasPermission('permissions_edit')
     @Put(':id')
-    async update(@Param('id') id: number, @Body('name') name: string) {
-        await this.permissionService.update(id, { name });
+    async update(@Param('id') id: number, @Body() body: Partial<PermissionCreateDto>) {
+        const permission = await this.permissionService.findOne({ id });
+        if (!permission) {
+            throw new NotFoundException('Permission not found');
+        }
+        if (body.permission_key) {
+            await this.permissionService.assertUniqueKey(body.permission_key.trim(), permission.type, permission.id);
+        }
+        await this.permissionService.update(id, {
+            name: body.name?.trim() ?? permission.name,
+            permission_key: body.permission_key?.trim() ?? permission.permission_key,
+            module_name: body.module_name?.trim() ?? permission.module_name,
+        });
         return this.permissionService.findOne({ id });
+    }
+
+    @ActorTypes(ActorType.ADMIN)
+    @HasPermission('permissions_delete')
+    @Delete(':id')
+    async remove(@Param('id') id: number) {
+        const permission = await this.permissionService.findOne({ id });
+        if (!permission) {
+            throw new NotFoundException('Permission not found');
+        }
+        await this.permissionService.assertNotAssigned(permission.id);
+        await this.permissionService.delete(permission.id);
+        return { message: 'Permission deleted' };
     }
 
     @HasPermission('permissions_view')

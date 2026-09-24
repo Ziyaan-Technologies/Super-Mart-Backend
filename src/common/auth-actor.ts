@@ -13,6 +13,7 @@ export interface AuthActor {
     vendor_id: number | null;
     clientstore_id: number | null;
     client_type: string | null;
+    business_type: string | null;
 }
 
 export const Actor = createParamDecorator((_: unknown, context: ExecutionContext): AuthActor => {

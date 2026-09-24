@@ -36,6 +36,9 @@ export class Clientstore {
   store_code: string;
 
   @Column({ nullable: true })
+  store_type: string;
+
+  @Column({ nullable: true })
   store_phone: string;
 
   @Column({ nullable: true })

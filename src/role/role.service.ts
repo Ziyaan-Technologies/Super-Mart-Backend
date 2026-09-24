@@ -7,7 +7,7 @@ import { Role } from './role.entity';
 
 @Injectable()
 export class RoleService extends AbstractService {
-    private permissionCache = new Map<number, { keys: Set<string>, expires_at: number }>();
+    private permissionCache = new Map<number, { permissions: { key: string, type: string }[], expires_at: number }>();
     private readonly cacheTtl = 60 * 1000;
 
     constructor(
@@ -16,18 +16,20 @@ export class RoleService extends AbstractService {
         super(roleRepository);
     }
 
-    async permissionKeys(roleId: number): Promise<Set<string>> {
+    async permissionKeys(roleId: number, types?: string[]): Promise<Set<string>> {
         if (!roleId) {
             return new Set();
         }
-        const cached = this.permissionCache.get(roleId);
-        if (cached && cached.expires_at > Date.now()) {
-            return cached.keys;
+        let cached = this.permissionCache.get(roleId);
+        if (!cached || cached.expires_at <= Date.now()) {
+            const role = await this.roleRepository.findOne({ where: { id: roleId }, relations: ['permissions'] });
+            cached = {
+                permissions: (role?.permissions || []).map((permission) => ({ key: permission.permission_key, type: permission.type })),
+                expires_at: Date.now() + this.cacheTtl,
+            };
+            this.permissionCache.set(roleId, cached);
         }
-        const role = await this.roleRepository.findOne({ where: { id: roleId }, relations: ['permissions'] });
-        const keys = new Set<string>((role?.permissions || []).map((permission) => permission.permission_key));
-        this.permissionCache.set(roleId, { keys, expires_at: Date.now() + this.cacheTtl });
-        return keys;
+        return new Set(cached.permissions.filter((permission) => !types || types.includes(permission.type)).map((permission) => permission.key));
     }
 
     clearPermissionCache(roleId?: number) {

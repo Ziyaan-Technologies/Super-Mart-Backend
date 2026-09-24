@@ -1,9 +1,9 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { typeormOptions } from './database/typeorm-options';
 import { CommonModule } from './common/common.module';
+import { LoggingMiddleware } from './common/logging.middleware';
 import { PermissionGuard } from './permission/permission.guard';
 import { AuthModule } from './auth/auth.module';
 import { RoleModule } from './role/role.module';
@@ -30,21 +30,33 @@ import { GoodsReceiptModule } from './goods-receipt/goods-receipt.module';
 import { StockTransferModule } from './stock-transfer/stock-transfer.module';
 import { StockAdjustmentModule } from './stock-adjustment/stock-adjustment.module';
 import { PosModule } from './pos/pos.module';
+import { ElectricAccessModule } from './electric-access/electric-access.module';
+import { ElectricBrandModule } from './electric-brand/electric-brand.module';
+import { ElectricCategoryModule } from './electric-category/electric-category.module';
+import { ElectricProductModule } from './electric-product/electric-product.module';
+import { ElectricCounterModule } from './electric-counter/electric-counter.module';
+import { ElectricDebtorModule } from './electric-debtor/electric-debtor.module';
+import { ElectricSaleModule } from './electric-sale/electric-sale.module';
+import { ElectricQuotationModule } from './electric-quotation/electric-quotation.module';
+import { ElectricUserModule } from './electric-user/electric-user.module';
+import { ElectricShopModule } from './electric-shop/electric-shop.module';
 
 @Module({
     imports: [
         ConfigModule.forRoot({
             isGlobal: true,
         }),
-        TypeOrmModule.forRootAsync({
+        TypeOrmModule.forRoot({
             name: 'MainConnection',
-            useFactory: () => ({
-                ...typeormOptions(),
-                name: 'MainConnection',
-                entities: [],
-                migrations: [],
-                autoLoadEntities: true,
-            }),
+            type: 'mysql',
+            host: process.env.DB_HOST,
+            port: Number(process.env.DB_PORT),
+            username: process.env.DB_USER_NAME,
+            password: process.env.DB_USER_PASSWORD,
+            database: process.env.DB_NAME,
+            autoLoadEntities: true,
+            synchronize: true,
+            logging: false,
         }),
         CommonModule,
         AuthModule,
@@ -72,6 +84,16 @@ import { PosModule } from './pos/pos.module';
         StockTransferModule,
         StockAdjustmentModule,
         PosModule,
+        ElectricAccessModule,
+        ElectricBrandModule,
+        ElectricCategoryModule,
+        ElectricProductModule,
+        ElectricCounterModule,
+    ElectricDebtorModule,
+        ElectricSaleModule,
+        ElectricQuotationModule,
+        ElectricUserModule,
+        ElectricShopModule,
     ],
     providers: [
         {
@@ -80,4 +102,8 @@ import { PosModule } from './pos/pos.module';
         }
     ],
 })
-export class AppModule { }
+export class AppModule implements NestModule {
+    configure(consumer: MiddlewareConsumer) {
+        consumer.apply(LoggingMiddleware).forRoutes('*');
+    }
+}
