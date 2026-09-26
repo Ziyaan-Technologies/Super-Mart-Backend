@@ -15,6 +15,10 @@ export class ElectricDebtorDto {
     address: string;
 
     @IsOptional()
+    @IsString()
+    image_url: string;
+
+    @IsOptional()
     @IsNumber()
     opening_balance: number;
 

@@ -41,7 +41,8 @@ export class ElectricProductService {
             .leftJoinAndSelect('product.category', 'category')
             .where('product.clientstore_id = :shopId', { shopId });
         if (body.search) {
-            query.andWhere(`(product.name LIKE :search OR product.id IN (SELECT inner_variant.product_id FROM electric_product_variants inner_variant
+            query.andWhere(`(product.name LIKE :search OR CAST(product.number AS CHAR) LIKE :search
+                OR product.id IN (SELECT inner_variant.product_id FROM electric_product_variants inner_variant
                 WHERE inner_variant.name LIKE :search OR inner_variant.sku LIKE :search OR inner_variant.barcode LIKE :search))`, { search: `%${body.search}%` });
         }
         if (body.category_id) query.andWhere('product.category_id = :categoryId', { categoryId: Number(body.category_id) });
@@ -86,7 +87,35 @@ export class ElectricProductService {
         return new Set<number>(rows.map((row: any) => Number(row.id)));
     }
 
-    private async validateProduct(shopId: number, body: ElectricProductDto, productId?: number) {
+    private cleanNumber(value: any) {
+        if (value === null || value === undefined || value === '') {
+            return null;
+        }
+        const number = Number(value);
+        if (!Number.isInteger(number) || number < 1) {
+            throw new BadRequestException('The number must be a whole number above zero');
+        }
+        return number;
+    }
+
+    private async assertFreeNumber(vendorId: number, value: any, productId?: number) {
+        const number = this.cleanNumber(value);
+        if (number === null) {
+            return null;
+        }
+        const taken = await this.productRepository.createQueryBuilder('product')
+            .leftJoinAndSelect('product.clientstore', 'clientstore')
+            .where('product.vendor_id = :vendorId', { vendorId })
+            .andWhere('product.number = :number', { number })
+            .andWhere(productId ? 'product.id != :productId' : '1 = 1', { productId })
+            .getOne();
+        if (taken) {
+            throw new BadRequestException(`Number ${number} is already used by ${taken.name} in ${taken.clientstore?.store_name}`);
+        }
+        return number;
+    }
+
+    private async validateProduct(shopId: number, vendorId: number, body: ElectricProductDto, productId?: number) {
         const name = String(body.name || '').trim();
         if (!name) throw new BadRequestException('Product name is required');
         if (!(await this.categoryRepository.findOne({ where: { id: body.category_id, clientstore: { id: shopId } } }))) {
@@ -106,6 +135,7 @@ export class ElectricProductService {
             .andWhere(productId ? 'product.id != :productId' : '1 = 1', { productId })
             .getOne();
         if (taken) throw new BadRequestException(`SKU ${taken.sku} is already used by another product`);
+        await this.assertFreeNumber(vendorId, body.number, productId);
         return name;
     }
 
@@ -147,13 +177,14 @@ export class ElectricProductService {
 
     async createProduct(actor: AuthActor, body: ElectricProductDto) {
         const shop = await this.access.shop(actor, body.clientstore_id);
-        const name = await this.validateProduct(shop.id, body);
+        const name = await this.validateProduct(shop.id, actor.vendor_id, body);
         const id = await this.dataSource.transaction(async (manager) => {
             const product = await manager.save(ElectricProduct, {
                 vendor: { id: actor.vendor_id },
                 clientstore: { id: shop.id },
                 category: { id: body.category_id },
                 brand: body.brand_id ? { id: body.brand_id } : null,
+                number: this.cleanNumber(body.number),
                 name,
                 description: body.description || '',
                 image_url: body.image_url || '',
@@ -170,7 +201,7 @@ export class ElectricProductService {
 
     async updateProduct(actor: AuthActor, id: number, body: ElectricProductDto) {
         const existing = await this.product(actor, id);
-        const name = await this.validateProduct(existing.clientstore_id, body, existing.id);
+        const name = await this.validateProduct(existing.clientstore_id, actor.vendor_id, body, existing.id);
         const keepIds = body.variants.map((variant) => Number(variant.id)).filter(Boolean);
         const removed = existing.variants.filter((variant) => !keepIds.includes(variant.id));
         const used = await this.usedVariantIds(removed.map((variant) => variant.id));
@@ -178,6 +209,7 @@ export class ElectricProductService {
             await manager.update(ElectricProduct, existing.id, {
                 category: { id: body.category_id },
                 brand: body.brand_id ? { id: body.brand_id } : null,
+                number: this.cleanNumber(body.number),
                 name,
                 description: body.description || '',
                 image_url: body.image_url || existing.image_url || '',

@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 import * as moment from 'moment-timezone';
@@ -6,7 +6,7 @@ import { AuthActor } from 'src/common/auth-actor';
 import { paginateQuery } from 'src/common/document-list';
 import { roundAmount } from 'src/common/decimal.transformer';
 import { ElectricListDto } from 'src/common/electric.dto';
-import { brief, createSale, dayKey, isPending, returnSale, saleProfit, setItemCost, shopView, vendorView } from 'src/common/electric-document';
+import { brief, createSale, dayKey, isPending, payBill, paymentState, returnSale, saleProfit, setItemCost, shopView, vendorView } from 'src/common/electric-document';
 import { Clientstore } from 'src/clientstore/models/clientstore.entity';
 import { ElectricAccessService } from 'src/electric-access/electric-access.service';
 import { ElectricQuotationService } from 'src/electric-quotation/electric-quotation.service';
@@ -14,6 +14,8 @@ import { ElectricProductVariant } from 'src/electric-product/models/electric-pro
 import { ElectricSale } from './models/electric-sale.entity';
 import { ElectricSaleItem } from './models/electric-sale-item.entity';
 import { ElectricSaleReturn } from './models/electric-sale-return.entity';
+import { ElectricBillPayment } from './models/electric-bill-payment.entity';
+import { ElectricDebtor } from 'src/electric-debtor/models/electric-debtor.entity';
 
 @Injectable()
 export class ElectricSaleService {
@@ -23,13 +25,18 @@ export class ElectricSaleService {
         @InjectRepository(ElectricSale, 'MainConnection') private readonly saleRepository: Repository<ElectricSale>,
         @InjectRepository(ElectricSaleItem, 'MainConnection') private readonly itemRepository: Repository<ElectricSaleItem>,
         @InjectRepository(ElectricSaleReturn, 'MainConnection') private readonly returnRepository: Repository<ElectricSaleReturn>,
+        @InjectRepository(ElectricBillPayment, 'MainConnection') private readonly billPaymentRepository: Repository<ElectricBillPayment>,
+        @InjectRepository(ElectricDebtor, 'MainConnection') private readonly debtorRepository: Repository<ElectricDebtor>,
         @InjectDataSource('MainConnection') private readonly dataSource: DataSource,
     ) { }
 
     private saleRelations = ['items', 'cashier', 'counter', 'clientstore', 'vendor', 'vendor.country'];
 
     async saleView(sale: ElectricSale) {
-        const returns = await this.returnRepository.find({ where: { sale: { id: sale.id } }, relations: ['items', 'processed_by_client', 'counter'], order: { id: 'ASC' } });
+        const [returns, payments] = await Promise.all([
+            this.returnRepository.find({ where: { sale: { id: sale.id } }, relations: ['items', 'processed_by_client', 'counter'], order: { id: 'ASC' } }),
+            this.billPaymentRepository.find({ where: { sale: { id: sale.id } }, relations: ['received_by_client', 'counter'], order: { id: 'ASC' } }),
+        ]);
         const { cashier, counter, clientstore, vendor, session, ...rest } = sale as any;
         const items = [...(sale.items || [])].sort((a, b) => a.id - b.id);
         return {
@@ -40,6 +47,12 @@ export class ElectricSaleService {
             clientstore: shopView(clientstore),
             vendor: vendorView(vendor),
             item_count: roundAmount(items.reduce((sum, item) => sum + item.quantity, 0)),
+            payment: paymentState(sale),
+            payments: payments.map(({ received_by_client, counter: payCounter, sale: _, ...row }: any) => ({
+                ...row,
+                received_by: brief(received_by_client),
+                counter: payCounter ? { id: payCounter.id, name: payCounter.name } : null,
+            })),
             pending_costs: items.filter(isPending).length,
             profit: saleProfit(sale),
             returns: returns.map(({ processed_by_client, counter: returnCounter, sale: _, ...row }: any) => ({
@@ -60,6 +73,10 @@ export class ElectricSaleService {
             returnedBills: sales.filter((sale) => sale.refunded_amount > 0).length,
             bills: sales.length,
             averageBill: sales.length ? roundAmount(total / sales.length) : 0,
+            pendingBills: sales.filter((sale) => sale.khata_amount > 0).length,
+            pendingAmount: roundAmount(sales.reduce((sum, sale) => sum + sale.khata_amount, 0)),
+            dueToday: sales.filter((sale) => sale.khata_amount > 0 && paymentState(sale).due_today).length,
+            overdue: sales.filter((sale) => sale.khata_amount > 0 && paymentState(sale).days_late > 0).length,
             discounts: roundAmount(sales.reduce((sum, sale) => sum + sale.item_discount + sale.bill_discount, 0)),
             profit: roundAmount(sales.reduce((sum, sale) => sum + saleProfit(sale), 0)),
             provisional: pending > 0,
@@ -81,6 +98,10 @@ export class ElectricSaleService {
         if (body.counter_id) query.andWhere('sale.counter_id = :counterId', { counterId: Number(body.counter_id) });
         if (body.payment_method) query.andWhere('sale.payment_method = :method', { method: body.payment_method });
         if (body.status) query.andWhere('sale.status = :status', { status: body.status });
+        if (body.payment === 'Paid') query.andWhere('sale.khata_amount <= 0');
+        if (body.payment === 'Pending') query.andWhere('sale.khata_amount > 0');
+        if (body.payment === 'Overdue') query.andWhere('sale.khata_amount > 0 AND sale.due_date IS NOT NULL AND sale.due_date < CURDATE()');
+        if (body.payment === 'Due today') query.andWhere('sale.khata_amount > 0 AND sale.due_date = CURDATE()');
         this.dateRange(query, 'sale', body);
         if (body.search) {
             query.andWhere('(sale.bill_number LIKE :search OR sale.customer_name LIKE :search OR sale.customer_phone LIKE :search)', { search: `%${body.search}%` });
@@ -141,6 +162,63 @@ export class ElectricSaleService {
         const returnId = await this.dataSource.transaction((manager) => returnSale(manager, record, sale.id, session, body));
         const view = await this.saleView(await this.saleRepository.findOne({ where: { id: sale.id }, relations: this.saleRelations }));
         return { sale: view, return: view.returns.find((row: any) => row.id === returnId) };
+    }
+
+    async payBill(actor: AuthActor, id: number, body: any) {
+        await this.access.need(actor, 'sales_payment', 'You cannot take payments on bills');
+        const sale = await this.seeSale(actor, id);
+        const record = await this.access.record(actor);
+        const session = await this.access.mySession(actor.id);
+        await this.dataSource.transaction((manager) => payBill(manager, record, sale.id, session, body));
+        return this.saleView(await this.saleRepository.findOne({ where: { id: sale.id }, relations: this.saleRelations }));
+    }
+
+    async attachDebtor(actor: AuthActor, id: number, body: any) {
+        await this.access.need(actor, 'debtors_create', 'You cannot add debtors');
+        const sale = await this.seeSale(actor, id);
+        if (sale.debtor_id) {
+            throw new BadRequestException('This bill is already on a khata');
+        }
+        if (sale.khata_amount <= 0) {
+            throw new BadRequestException('This bill is already paid');
+        }
+        const debtorId = await this.dataSource.transaction(async (manager) => {
+            if (body.debtor_id) {
+                const existing = await manager.findOne(ElectricDebtor, { where: { id: Number(body.debtor_id), vendor: { id: actor.vendor_id } } });
+                if (!existing) throw new NotFoundException('Debtor not found');
+                return existing.id;
+            }
+            const name = String(body.name || sale.customer_name || '').trim();
+            if (!name) throw new BadRequestException('Enter the name for this khata');
+            const phone = String(body.phone || sale.customer_phone || '').trim() || null;
+            const saved = await manager.save(ElectricDebtor, {
+                vendor: { id: actor.vendor_id },
+                name,
+                phone,
+                address: body.address?.trim() || null,
+                note: body.note?.trim() || null,
+                opening_balance: 0,
+                is_active: true,
+            });
+            return saved.id;
+        });
+        await this.saleRepository.update(sale.id, { debtor_id: debtorId });
+        return this.saleView(await this.saleRepository.findOne({ where: { id: sale.id }, relations: this.saleRelations }));
+    }
+
+    async matchDebtor(actor: AuthActor, id: number) {
+        const sale = await this.seeSale(actor, id);
+        const phone = String(sale.customer_phone || '').trim();
+        const name = String(sale.customer_name || '').trim();
+        const found = phone
+            ? await this.debtorRepository.findOne({ where: { phone, vendor: { id: actor.vendor_id } } })
+            : null;
+        return {
+            name,
+            phone,
+            owing: sale.khata_amount,
+            existing: found ? { id: found.id, name: found.name, phone: found.phone } : null,
+        };
     }
 
     async pendingItems(shopId: number, options: { status?: string; sessionId?: number; counterId?: number | null } = {}) {
@@ -230,7 +308,31 @@ export class ElectricSaleService {
             .take(8)
             .getMany();
         const recent = await Promise.all(today.slice(0, 8).map((sale) => this.saleView(sale)));
+        const owed = await this.saleRepository.createQueryBuilder('sale')
+            .where('sale.clientstore_id = :shopId AND sale.khata_amount > 0', { shopId: shop.id })
+            .orderBy('sale.due_date', 'ASC')
+            .addOrderBy('sale.id', 'DESC')
+            .getMany();
+        const duePromises = owed
+            .filter((sale) => sale.due_date && moment(sale.due_date).isSameOrBefore(moment(), 'day'))
+            .map((sale) => ({
+                id: sale.id,
+                bill_number: sale.bill_number,
+                customer_name: sale.customer_name,
+                customer_phone: sale.customer_phone,
+                debtor_id: sale.debtor_id,
+                owing: sale.khata_amount,
+                due_date: sale.due_date,
+                ...paymentState(sale),
+            }));
         return {
+            payments_due: {
+                bills: owed.length,
+                total: roundAmount(owed.reduce((sum, sale) => sum + sale.khata_amount, 0)),
+                due_today: duePromises.filter((row) => row.days_late === 0).length,
+                overdue: duePromises.filter((row) => row.days_late > 0).length,
+                list: duePromises.slice(0, 10),
+            },
             today: this.summary(today),
             yesterday: this.summary(yesterday),
             pending_costs: (await this.pendingItems(shop.id, { status: 'Pending' })).length,

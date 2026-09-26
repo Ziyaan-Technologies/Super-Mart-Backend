@@ -10,6 +10,7 @@ import { ElectricCashMove, ElectricCashMoveType } from 'src/electric-counter/mod
 import { ElectricProductVariant } from 'src/electric-product/models/electric-product-variant.entity';
 import { ElectricPaymentMethod, ElectricSale, ElectricSaleStatus } from 'src/electric-sale/models/electric-sale.entity';
 import { ElectricSaleItem } from 'src/electric-sale/models/electric-sale-item.entity';
+import { ElectricBillPayment } from 'src/electric-sale/models/electric-bill-payment.entity';
 import { ElectricSaleReturn } from 'src/electric-sale/models/electric-sale-return.entity';
 import { ElectricSaleReturnItem } from 'src/electric-sale/models/electric-sale-return-item.entity';
 import { ElectricQuotation, ElectricQuotationStatus } from 'src/electric-quotation/models/electric-quotation.entity';
@@ -56,7 +57,7 @@ export function quotationStatus(quotation: ElectricQuotation) {
 }
 
 export async function sessionTotals(manager: EntityManager, session: ElectricCounterSession) {
-    const [sales, moves, refunds, khataPayments, [pending]] = await Promise.all([
+    const [sales, moves, refunds, khataPayments, [pending], duePromises] = await Promise.all([
         manager.query(
             `SELECT payment_method AS method, COUNT(*) AS bills, COALESCE(SUM(total_amount), 0) AS total, COALESCE(SUM(paid_amount), 0) AS paid,
                     COALESCE(SUM(khata_amount), 0) AS khata, COALESCE(SUM(item_discount + bill_discount), 0) AS discounts
@@ -70,13 +71,23 @@ export async function sessionTotals(manager: EntityManager, session: ElectricCou
             [session.id],
         ),
         manager.query(
-            `SELECT method, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount FROM electric_debtor_payments WHERE session_id = ? GROUP BY method`,
-            [session.id],
+            `SELECT method, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount FROM (
+                SELECT method, amount FROM electric_debtor_payments WHERE session_id = ?
+                UNION ALL
+                SELECT method, amount FROM electric_bill_payments WHERE session_id = ?
+             ) AS taken GROUP BY method`,
+            [session.id, session.id],
         ),
         manager.query(
             `SELECT COUNT(*) AS count FROM electric_sale_items item JOIN electric_sales sale ON sale.id = item.sale_id
              WHERE sale.session_id = ? AND item.is_outside = 1 AND item.cost_price IS NULL AND item.returned_quantity < item.quantity`,
             [session.id],
+        ),
+        manager.query(
+            `SELECT id, bill_number, customer_name, khata_amount, due_date FROM electric_sales
+             WHERE clientstore_id = ? AND khata_amount > 0 AND due_date IS NOT NULL AND due_date <= CURDATE()
+             ORDER BY due_date ASC`,
+            [session.clientstore_id],
         ),
     ]);
     const byMethod = (method: string) => roundAmount(parseFloat(sales.find((row: any) => row.method === method)?.paid || 0));
@@ -110,6 +121,13 @@ export async function sessionTotals(manager: EntityManager, session: ElectricCou
         online_refunds: refundBy(ElectricPaymentMethod.ONLINE),
         cash_now: roundAmount(session.opening_cash + cashSales + khataCash + cashIn - cashOut - cashRefunds),
         pending_costs: Number(pending?.count || 0),
+        due_promises: duePromises.map((row: any) => ({
+            id: row.id,
+            bill_number: row.bill_number,
+            customer_name: row.customer_name,
+            owing: roundAmount(parseFloat(row.khata_amount)),
+            due_date: row.due_date,
+        })),
     };
 }
 
@@ -318,13 +336,23 @@ export async function createSale(manager: EntityManager, actor: ElectricActor, b
     if (body.debtor_id && !debtor) {
         throw new NotFoundException('Debtor not found');
     }
-    if (debtor) {
-        need(granted, 'pos_debtor_sale', 'You cannot put a bill on a khata');
-    }
-    const paid = debtor
+    const dueDate = String(body.due_date || '').trim() || null;
+    const payLater = !!debtor || !!dueDate || body.paid_amount !== undefined;
+    const paid = payLater
         ? roundAmount(Math.min(Math.max(Number(body.paid_amount) || 0, 0), bill.total))
         : bill.total;
     const khata = roundAmount(bill.total - paid);
+    if (khata > 0) {
+        need(granted, debtor ? 'pos_debtor_sale' : 'pos_pay_later', debtor
+            ? 'You cannot put a bill on a khata'
+            : 'You cannot take a bill without full payment');
+        if (!debtor && !String(body.customer_name || '').trim()) {
+            throw new BadRequestException('Enter the customer name for a pay later bill');
+        }
+        if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+            throw new BadRequestException('The promised date is not a valid date');
+        }
+    }
     const received = method === ElectricPaymentMethod.CASH ? roundAmount(Number(body.amount_received ?? paid)) : paid;
     if (method === ElectricPaymentMethod.CASH && received < paid) {
         throw new BadRequestException(debtor ? 'Cash received is less than the amount being paid' : 'Cash received is less than the bill total');
@@ -354,6 +382,7 @@ export async function createSale(manager: EntityManager, actor: ElectricActor, b
         change_amount: roundAmount(received - paid),
         paid_amount: paid,
         khata_amount: khata,
+        due_date: khata > 0 ? dueDate : null,
         refunded_amount: 0,
         status: ElectricSaleStatus.COMPLETED,
         ...(options.at ? { created_at: options.at } : {}),
@@ -479,6 +508,62 @@ export async function returnSale(manager: EntityManager, actor: ElectricActor, s
         status: fullyReturned ? ElectricSaleStatus.RETURNED : ElectricSaleStatus.PARTIALLY_RETURNED,
     });
     return saleReturn.id;
+}
+
+export async function payBill(manager: EntityManager, actor: ElectricActor, saleId: number, session: ElectricCounterSession | null, body: any, at = new Date()) {
+    const sale = await manager.createQueryBuilder(ElectricSale, 'sale').setLock('pessimistic_write').where('sale.id = :saleId', { saleId }).getOne();
+    if (!sale) {
+        throw new NotFoundException('Bill not found');
+    }
+    const owing = roundAmount(sale.khata_amount);
+    if (owing <= 0) {
+        throw new BadRequestException('This bill is already paid');
+    }
+    const amount = roundAmount(Number(body.amount) || 0);
+    if (amount <= 0) {
+        throw new BadRequestException('Enter the amount being paid');
+    }
+    if (amount > owing) {
+        throw new BadRequestException(`Only ${owing} is left on this bill`);
+    }
+    if (!session || session.status !== ElectricSessionStatus.OPEN || session.clientstore_id !== sale.clientstore_id) {
+        throw new BadRequestException('Open your counter in this shop before taking a payment');
+    }
+    const method = Object.values(ElectricPaymentMethod).includes(body.method) ? body.method : ElectricPaymentMethod.CASH;
+    await manager.save(ElectricBillPayment, {
+        sale: { id: sale.id },
+        vendor: { id: sale.vendor_id },
+        clientstore: { id: sale.clientstore_id },
+        counter: { id: session.counter_id },
+        session: { id: session.id },
+        amount,
+        method,
+        note: body.note?.trim() || null,
+        received_by_client: { id: actor.id },
+        created_at: at,
+    });
+    await manager.update(ElectricSale, sale.id, {
+        khata_amount: roundAmount(owing - amount),
+        due_date: roundAmount(owing - amount) > 0 ? sale.due_date : null,
+    });
+    return sale.id;
+}
+
+export function paymentState(sale: { total_amount: number; paid_amount: number; khata_amount: number; due_date?: string | null; refunded_amount?: number }) {
+    const owing = roundAmount(sale.khata_amount);
+    const settled = roundAmount(sale.total_amount - owing);
+    if (owing <= 0) {
+        return { state: 'Paid', owing: 0, settled, days_late: 0, due_today: false };
+    }
+    const due = sale.due_date ? moment(sale.due_date).endOf('day') : null;
+    const late = due && moment().isAfter(due) ? moment().startOf('day').diff(moment(sale.due_date).startOf('day'), 'days') : 0;
+    return {
+        state: late > 0 ? 'Overdue' : (settled > 0 ? 'Partly paid' : 'Pending'),
+        owing,
+        settled,
+        days_late: late,
+        due_today: !!due && moment().isSame(moment(sale.due_date), 'day'),
+    };
 }
 
 export async function setItemCost(manager: EntityManager, actorId: number, itemId: number, cost: any, at = new Date()) {

@@ -36,6 +36,24 @@ export class ElectricSaleController {
         return this.saleService.sale(actor, Number(id));
     }
 
+    @HasPermission('sales_payment')
+    @Post('sales/:id/payments')
+    payBill(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: any) {
+        return this.saleService.payBill(actor, Number(id), body);
+    }
+
+    @HasPermission('debtors_create')
+    @Get('sales/:id/debtor-match')
+    matchDebtor(@Actor() actor: AuthActor, @Param('id') id: number) {
+        return this.saleService.matchDebtor(actor, Number(id));
+    }
+
+    @HasPermission('debtors_create')
+    @Post('sales/:id/debtor')
+    attachDebtor(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: any) {
+        return this.saleService.attachDebtor(actor, Number(id), body);
+    }
+
     @HasPermission('pos_return')
     @Post('sales/:id/return')
     returnSale(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: any) {

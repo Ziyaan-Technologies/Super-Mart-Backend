@@ -11,6 +11,7 @@ export class ElectricListDto extends ListQueryDto {
     session_id?: number;
     payment_method?: string;
     balance?: string;
+    payment?: string;
 }
 
 export class ElectricNamedDto {

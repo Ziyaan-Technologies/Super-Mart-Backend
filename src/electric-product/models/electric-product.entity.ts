@@ -38,6 +38,9 @@ export class ElectricProduct {
   @RelationId((product: ElectricProduct) => product.brand)
   brand_id: number;
 
+  @Column({ type: 'int', nullable: true })
+  number: number;
+
   @Column()
   name: string;
 

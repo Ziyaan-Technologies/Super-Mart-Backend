@@ -41,6 +41,11 @@ export class ElectricVariantDto {
 }
 
 export class ElectricProductDto {
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    number: number | null;
+
     @IsInt()
     clientstore_id: number;
 

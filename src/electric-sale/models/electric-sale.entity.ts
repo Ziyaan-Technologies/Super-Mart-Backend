@@ -78,6 +78,9 @@ export class ElectricSale extends ElectricDocumentTotals {
   @Column({ type: 'decimal', precision: 20, scale: 2, default: 0, transformer: DecimalTransformer })
   paid_amount: number;
 
+  @Column({ type: 'date', nullable: true })
+  due_date: string;
+
   @Column({ type: 'decimal', precision: 20, scale: 2, default: 0, transformer: DecimalTransformer })
   khata_amount: number;
 

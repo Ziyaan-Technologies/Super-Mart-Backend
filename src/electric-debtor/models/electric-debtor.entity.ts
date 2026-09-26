@@ -23,6 +23,9 @@ export class ElectricDebtor {
   @Column({ type: 'text', nullable: true })
   address: string;
 
+  @Column({ nullable: true })
+  image_url: string;
+
   @Column({ type: 'decimal', precision: 20, scale: 2, default: 0, transformer: DecimalTransformer })
   opening_balance: number;
 

@@ -8,10 +8,12 @@ import { ElectricSale } from './models/electric-sale.entity';
 import { ElectricSaleItem } from './models/electric-sale-item.entity';
 import { ElectricSaleReturn } from './models/electric-sale-return.entity';
 import { ElectricSaleReturnItem } from './models/electric-sale-return-item.entity';
+import { ElectricBillPayment } from './models/electric-bill-payment.entity';
+import { ElectricDebtor } from 'src/electric-debtor/models/electric-debtor.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ElectricSale, ElectricSaleItem, ElectricSaleReturn, ElectricSaleReturnItem], 'MainConnection'),
+    TypeOrmModule.forFeature([ElectricSale, ElectricSaleItem, ElectricSaleReturn, ElectricSaleReturnItem, ElectricBillPayment, ElectricDebtor], 'MainConnection'),
     ElectricAccessModule,
     ElectricQuotationModule,
   ],
