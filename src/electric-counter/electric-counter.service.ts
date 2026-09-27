@@ -141,15 +141,32 @@ export class ElectricCounterService {
         return this.counterRepository.findOne({ where: { id: counter.id } });
     }
 
+    /** money or paper that points at this counter and has to stay readable */
+    private async hasHistory(counterId: number) {
+        const [row] = await this.dataSource.query(
+            `SELECT (SELECT COUNT(*) FROM electric_sales WHERE counter_id = ?)
+                  + (SELECT COUNT(*) FROM electric_sale_returns WHERE counter_id = ?)
+                  + (SELECT COUNT(*) FROM electric_quotations WHERE counter_id = ?)
+                  + (SELECT COUNT(*) FROM electric_cash_moves WHERE counter_id = ?)
+                  + (SELECT COUNT(*) FROM electric_debtor_payments WHERE counter_id = ?)
+                  + (SELECT COUNT(*) FROM electric_bill_payments WHERE counter_id = ?)
+                  + (SELECT COUNT(*) FROM electric_creditor_payments WHERE counter_id = ?)
+                  + (SELECT COUNT(*) FROM electric_counter_sessions WHERE counter_id = ? AND (opening_cash > 0 OR closing_cash > 0)) AS total`,
+            Array(8).fill(counterId),
+        );
+        return Number(row.total) > 0;
+    }
+
     async remove(actor: AuthActor, id: number) {
         const counter = await this.counter(actor, id);
         if (await this.isOpen(counter.id)) {
             throw new BadRequestException('Close this counter before deleting it');
         }
-        if (await this.sessionRepository.count({ where: { counter: { id: counter.id } } })) {
+        if (await this.hasHistory(counter.id)) {
             await this.counterRepository.update(counter.id, { is_active: false });
-            return { deactivated: true, message: 'This counter has old sessions, so it was made inactive instead of deleted.' };
+            return { deactivated: true, message: 'This counter has bills or cash on it, so it was made inactive instead of deleted.' };
         }
+        await this.sessionRepository.delete({ counter: { id: counter.id } });
         await this.counterRepository.softDelete(counter.id);
         return { message: 'Counter deleted' };
     }
