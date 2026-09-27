@@ -9,6 +9,7 @@ import { PosController } from './pos.controller';
 import { PosService } from './pos.service';
 import { ReceiptService } from './receipt.service';
 import { RegisterSession } from './models/register-session.entity';
+import { PosCounter } from './models/pos-counter.entity';
 import { Sale } from './models/sale.entity';
 import { SaleItem } from './models/sale-item.entity';
 import { SalePayment } from './models/sale-payment.entity';
@@ -17,7 +18,7 @@ import { SaleReturnItem } from './models/sale-return-item.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([RegisterSession, Sale, SaleItem, SalePayment, SaleReturn, SaleReturnItem, User], 'MainConnection'),
+    TypeOrmModule.forFeature([PosCounter, RegisterSession, Sale, SaleItem, SalePayment, SaleReturn, SaleReturnItem, User], 'MainConnection'),
     RoleModule,
     CategoryModule,
     ProductModule,

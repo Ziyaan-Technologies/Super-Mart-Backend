@@ -3,6 +3,7 @@ import { Vendor } from "src/vendor/models/vendor.entity";
 import { Clientstore } from "src/clientstore/models/clientstore.entity";
 import { Client } from "src/client/models/client.entity";
 import { DecimalTransformer } from "src/common/decimal.transformer";
+import { PosCounter } from "./pos-counter.entity";
 
 export enum RegisterSessionStatus {
   OPEN = 'Open',
@@ -31,6 +32,13 @@ export class RegisterSession {
 
   @RelationId((session: RegisterSession) => session.clientstore)
   clientstore_id: number;
+
+  @ManyToOne(() => PosCounter, { nullable: true })
+  @JoinColumn({ name: 'counter_id' })
+  counter: PosCounter;
+
+  @RelationId((session: RegisterSession) => session.counter)
+  counter_id: number;
 
   @ManyToOne(() => Client)
   @JoinColumn({ name: 'cashier_id' })
