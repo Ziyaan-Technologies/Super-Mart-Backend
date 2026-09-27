@@ -24,9 +24,6 @@ export class ElectricBrand {
   @Column()
   name: string;
 
-  @Column({ type: 'text', nullable: true })
-  description: string;
-
   @Column({ nullable: true })
   image_url: string;
 

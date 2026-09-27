@@ -7,7 +7,7 @@ import { randomBytes } from 'crypto';
 import { ActorType } from 'src/common/auth-actor';
 import { ActorTypes } from 'src/common/actor-types.decorator';
 
-const folders = ['admin', 'client', 'vendor', 'store', 'category', 'brand', 'product', 'supplier', 'user', 'debtor'];
+const folders = ['admin', 'client', 'vendor', 'store', 'category', 'brand', 'product', 'supplier', 'user', 'debtor', 'creditor'];
 
 @ActorTypes(ActorType.ADMIN, ActorType.CLIENT)
 @Controller('files')

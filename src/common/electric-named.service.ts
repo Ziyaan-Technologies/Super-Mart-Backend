@@ -50,7 +50,7 @@ export abstract class ElectricNamedService {
         const shop = await this.access.shop(actor, body.clientstore_id);
         const query = this.repository.createQueryBuilder(this.alias).where(`${this.alias}.clientstore_id = :shopId`, { shopId: shop.id });
         if (body.search) {
-            query.andWhere(`(${this.alias}.name LIKE :search OR ${this.alias}.description LIKE :search)`, { search: `%${body.search}%` });
+            query.andWhere(`${this.alias}.name LIKE :search`, { search: `%${body.search}%` });
         }
         if (body.status) {
             query.andWhere(`${this.alias}.is_active = :active`, { active: body.status === 'Active' });
@@ -71,7 +71,6 @@ export abstract class ElectricNamedService {
             vendor: { id: actor.vendor_id },
             clientstore: { id: shop.id },
             name: await this.assertUniqueName(shop.id, body.name),
-            description: body.description || '',
             image_url: body.image_url || '',
             is_active: body.is_active !== false,
             ...this.extraFields(body),
@@ -92,7 +91,6 @@ export abstract class ElectricNamedService {
         const row = await this.own(actor, id);
         await this.repository.update(row.id, {
             name: await this.assertUniqueName(row.clientstore_id, body.name ?? row.name, row.id),
-            description: body.description ?? row.description,
             image_url: body.image_url ?? row.image_url,
             is_active: body.is_active ?? row.is_active,
             ...this.extraFields(body, row),

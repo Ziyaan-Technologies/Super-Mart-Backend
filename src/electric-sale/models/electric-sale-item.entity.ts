@@ -23,4 +23,7 @@ export class ElectricSaleItem extends ElectricDocumentLine {
 
   @Column({ nullable: true })
   cost_entered_by: number;
+
+  @Column({ nullable: true })
+  creditor_id: number;
 }

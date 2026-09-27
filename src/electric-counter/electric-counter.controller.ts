@@ -58,11 +58,16 @@ export class ElectricCounterController {
     }
 
     @Get('counter-sessions/current')
-    current(@Actor() actor: AuthActor, @Query('clientstore_id') clientstoreId: number) {
-        return this.counterService.current(actor, clientstoreId);
+    current(@Actor() actor: AuthActor, @Query('clientstore_id') clientstoreId: number, @Query('session_id') sessionId?: number) {
+        return this.counterService.current(actor, clientstoreId, sessionId);
     }
 
     @HasPermission('counters_open_close')
+    @Get('counter-sessions/open-list')
+    openSessions(@Actor() actor: AuthActor, @Query('clientstore_id') clientstoreId: number) {
+        return this.counterService.openSessions(actor, clientstoreId);
+    }
+
     @Post('counter-sessions/open')
     open(@Actor() actor: AuthActor, @Body() body: { counter_id: number; opening_cash: number }) {
         return this.counterService.open(actor, body);

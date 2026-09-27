@@ -13,7 +13,13 @@ async function bootstrap() {
   });
 
   // Serve /uploads folder
-  app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
+  // uploaded images are public assets, and the panels draw them into printed PDFs
+  app.use('/uploads', express.static(join(process.cwd(), 'uploads'), {
+    setHeaders(res) {
+      res.set('Access-Control-Allow-Origin', '*');
+      res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    },
+  }));
 
   app.enableShutdownHooks();
   app.setGlobalPrefix('api');

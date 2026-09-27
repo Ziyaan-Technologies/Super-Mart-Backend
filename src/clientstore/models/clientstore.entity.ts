@@ -41,6 +41,9 @@ export class Clientstore {
   @Column({ nullable: true })
   store_phone: string;
 
+  @Column({ type: 'json', nullable: true })
+  store_phones: string[];
+
   @Column({ nullable: true })
   store_email: string;
 

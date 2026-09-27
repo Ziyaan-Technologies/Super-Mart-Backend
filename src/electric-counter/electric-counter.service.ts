@@ -67,6 +67,21 @@ export class ElectricCounterService {
         return { data: rows.slice((page - 1) * take, page * take), meta: { total: rows.length, page, last_page: Math.ceil(rows.length / take) } };
     }
 
+    async openSessions(actor: AuthActor, clientstoreId: any) {
+        const shop = await this.access.shop(actor, clientstoreId);
+        if (!(await this.access.can(actor, 'pos_any_counter'))) {
+            return [];
+        }
+        const sessions = await this.access.openSessions(shop.id);
+        return sessions.map((session) => ({
+            id: session.id,
+            session_number: session.session_number,
+            counter: session.counter ? { id: session.counter.id, name: session.counter.name } : null,
+            cashier: brief(session.cashier),
+            opened_at: session.opened_at,
+        }));
+    }
+
     async dropdown(actor: AuthActor, clientstoreId: any) {
         const shop = await this.access.shop(actor, clientstoreId);
         return this.counterViews(shop.id);
@@ -139,9 +154,9 @@ export class ElectricCounterService {
         return { message: 'Counter deleted' };
     }
 
-    async current(actor: AuthActor, clientstoreId: any) {
+    async current(actor: AuthActor, clientstoreId: any, sessionId?: any) {
         const shop = await this.access.shop(actor, clientstoreId);
-        const session = await this.access.mySession(actor.id);
+        const session = await this.access.sessionFor(actor, shop.id, sessionId);
         if (!session) return null;
         if (session.clientstore_id !== shop.id) {
             const full = await this.sessionRepository.findOne({ where: { id: session.id }, relations: ['counter', 'clientstore'] });

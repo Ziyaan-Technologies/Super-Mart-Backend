@@ -10,10 +10,6 @@ export class ElectricVariantDto {
     @IsString()
     name: string;
 
-    @IsNotEmpty()
-    @IsString()
-    sku: string;
-
     @IsOptional()
     @IsString()
     barcode: string;
@@ -52,10 +48,6 @@ export class ElectricProductDto {
     @IsNotEmpty()
     @IsString()
     name: string;
-
-    @IsOptional()
-    @IsString()
-    description: string;
 
     @IsInt()
     category_id: number;

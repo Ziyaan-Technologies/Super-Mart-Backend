@@ -24,10 +24,6 @@ export class ElectricNamedDto {
 
     @IsOptional()
     @IsString()
-    description: string;
-
-    @IsOptional()
-    @IsString()
     image_url: string;
 
     @IsOptional()

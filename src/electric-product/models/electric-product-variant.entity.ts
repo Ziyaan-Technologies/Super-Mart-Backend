@@ -1,9 +1,8 @@
-import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, RelationId, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, RelationId, UpdateDateColumn } from 'typeorm';
 import { DecimalTransformer } from 'src/common/decimal.transformer';
 import { ElectricProduct } from './electric-product.entity';
 
 @Entity('electric_product_variants')
-@Index('IDX_electric_product_variants_sku', ['sku'])
 export class ElectricProductVariant {
   @PrimaryGeneratedColumn()
   id: number;
@@ -17,9 +16,6 @@ export class ElectricProductVariant {
 
   @Column()
   name: string;
-
-  @Column()
-  sku: string;
 
   @Column({ nullable: true })
   barcode: string;

@@ -1,7 +1,7 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
-export class ElectricDebtorDto {
+export class ElectricCreditorDto {
     @IsNotEmpty()
     @IsString()
     name: string;
@@ -31,9 +31,9 @@ export class ElectricDebtorDto {
     is_active: boolean;
 }
 
-export class ElectricDebtorUpdateDto extends PartialType(ElectricDebtorDto) { }
+export class ElectricCreditorUpdateDto extends PartialType(ElectricCreditorDto) { }
 
-export class ElectricDebtorPaymentDto {
+export class ElectricCreditorPaymentDto {
     @IsNumber()
     amount: number;
 
@@ -50,6 +50,19 @@ export class ElectricDebtorPaymentDto {
     method: string;
 
     @IsOptional()
+    @IsString()
+    note: string;
+}
+
+export class ElectricCreditorEntryDto {
+    @IsNumber()
+    amount: number;
+
+    @IsOptional()
+    @IsNumber()
+    clientstore_id: number;
+
+    @IsNotEmpty()
     @IsString()
     note: string;
 }

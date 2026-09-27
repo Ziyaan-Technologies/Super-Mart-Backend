@@ -73,7 +73,7 @@ export class ElectricSaleController {
 
     @HasPermission('pending_costs_edit')
     @Put('sale-items/:id/cost')
-    enterCost(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: { cost_price: number }) {
-        return this.saleService.enterCost(actor, Number(id), body.cost_price);
+    enterCost(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: { cost_price: number; creditor_id?: number }) {
+        return this.saleService.enterCost(actor, Number(id), body.cost_price, body.creditor_id);
     }
 }

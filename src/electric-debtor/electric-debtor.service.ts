@@ -6,7 +6,6 @@ import { roundAmount } from 'src/common/decimal.transformer';
 import { ElectricListDto } from 'src/common/electric.dto';
 import { brief } from 'src/common/electric-document';
 import { ElectricAccessService } from 'src/electric-access/electric-access.service';
-import { ElectricSessionStatus } from 'src/electric-counter/models/electric-counter-session.entity';
 import { ElectricPaymentMethod, ElectricSale } from 'src/electric-sale/models/electric-sale.entity';
 import { ElectricDebtor } from './models/electric-debtor.entity';
 import { ElectricDebtorPayment } from './models/electric-debtor-payment.entity';
@@ -108,7 +107,6 @@ export class ElectricDebtorService {
             debtors: views.length,
             owing: views.filter((row) => row.balance > 0).length,
             totalOwed: roundAmount(views.reduce((sum, row) => sum + Math.max(row.balance, 0), 0)),
-            totalPaid: roundAmount(views.reduce((sum, row) => sum + row.paid, 0)),
         };
     }
 
@@ -222,19 +220,16 @@ export class ElectricDebtorService {
         if (amount > balance) {
             throw new BadRequestException(`This debtor only owes ${balance}`);
         }
-        const session = await this.access.mySession(actor.id);
-        if (!session || session.status !== ElectricSessionStatus.OPEN) {
-            throw new BadRequestException('Open your counter before taking a payment');
-        }
+        const session = await this.access.cashSession(actor, Number(body.clientstore_id) || 0, body.session_id);
         const method = Object.values(ElectricPaymentMethod).includes(body.method as ElectricPaymentMethod)
             ? (body.method as ElectricPaymentMethod)
             : ElectricPaymentMethod.CASH;
         await this.paymentRepository.save({
             debtor: { id: debtor.id },
             vendor: { id: actor.vendor_id },
-            clientstore: { id: session.clientstore_id },
-            counter: { id: session.counter_id },
-            session: { id: session.id },
+            clientstore: session ? { id: session.clientstore_id } : (body.clientstore_id ? { id: Number(body.clientstore_id) } : null),
+            counter: session ? { id: session.counter_id } : null,
+            session: session ? { id: session.id } : null,
             amount,
             method,
             note: body.note?.trim() || null,

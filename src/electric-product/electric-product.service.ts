@@ -43,7 +43,7 @@ export class ElectricProductService {
         if (body.search) {
             query.andWhere(`(product.name LIKE :search OR CAST(product.number AS CHAR) LIKE :search
                 OR product.id IN (SELECT inner_variant.product_id FROM electric_product_variants inner_variant
-                WHERE inner_variant.name LIKE :search OR inner_variant.sku LIKE :search OR inner_variant.barcode LIKE :search))`, { search: `%${body.search}%` });
+                WHERE inner_variant.name LIKE :search OR inner_variant.barcode LIKE :search))`, { search: `%${body.search}%` });
         }
         if (body.category_id) query.andWhere('product.category_id = :categoryId', { categoryId: Number(body.category_id) });
         if (body.brand_id) query.andWhere('product.brand_id = :brandId', { brandId: Number(body.brand_id) });
@@ -125,16 +125,6 @@ export class ElectricProductService {
             throw new BadRequestException('Choose a brand from this shop');
         }
         if (!body.variants?.length) throw new BadRequestException('Add at least one size / variant');
-        const skus = body.variants.map((variant) => String(variant.sku || '').trim());
-        const repeated = skus.find((sku, index) => skus.indexOf(sku) !== index);
-        if (repeated) throw new BadRequestException(`SKU ${repeated} is used twice`);
-        const taken = await this.dataSource.getRepository(ElectricProductVariant).createQueryBuilder('variant')
-            .innerJoin('variant.product', 'product')
-            .where('product.clientstore_id = :shopId', { shopId })
-            .andWhere('variant.sku IN (:...skus)', { skus })
-            .andWhere(productId ? 'product.id != :productId' : '1 = 1', { productId })
-            .getOne();
-        if (taken) throw new BadRequestException(`SKU ${taken.sku} is already used by another product`);
         await this.assertFreeNumber(vendorId, body.number, productId);
         return name;
     }
@@ -142,14 +132,13 @@ export class ElectricProductService {
     private variantData(variant: any, keepStock = false) {
         const data: any = {
             name: String(variant.name).trim(),
-            sku: String(variant.sku).trim(),
             barcode: String(variant.barcode || '').trim() || null,
             sale_price: roundAmount(Number(variant.sale_price) || 0),
             reorder_level: roundQuantity(Number(variant.reorder_level) || 0),
             is_active: variant.is_active !== false,
         };
+        data.cost_price = roundAmount(Number(variant.cost_price) || 0);
         if (!keepStock) {
-            data.cost_price = roundAmount(Number(variant.cost_price) || 0);
             data.stock = roundQuantity(Number(variant.stock) || 0);
         }
         return data;
@@ -186,7 +175,6 @@ export class ElectricProductService {
                 brand: body.brand_id ? { id: body.brand_id } : null,
                 number: this.cleanNumber(body.number),
                 name,
-                description: body.description || '',
                 image_url: body.image_url || '',
                 is_active: body.is_active !== false,
             });
@@ -211,14 +199,30 @@ export class ElectricProductService {
                 brand: body.brand_id ? { id: body.brand_id } : null,
                 number: this.cleanNumber(body.number),
                 name,
-                description: body.description || '',
                 image_url: body.image_url || existing.image_url || '',
                 is_active: body.is_active !== false,
             });
             for (const variant of body.variants) {
                 const current = existing.variants.find((row) => row.id === Number(variant.id));
                 if (current) {
-                    await manager.update(ElectricProductVariant, current.id, this.variantData(variant, true));
+                    const data = this.variantData(variant, true);
+                    if (roundAmount(data.cost_price) !== roundAmount(current.cost_price)) {
+                        await manager.save(ElectricStockEntry, {
+                            vendor: { id: actor.vendor_id },
+                            clientstore: { id: existing.clientstore_id },
+                            product: { id: existing.id },
+                            variant: { id: current.id },
+                            type: ElectricStockEntryType.CORRECTION,
+                            quantity: 0,
+                            cost_price: data.cost_price,
+                            total_cost: 0,
+                            stock_after: current.stock,
+                            cost_after: data.cost_price,
+                            note: `Cost changed from ${current.cost_price} to ${data.cost_price}`,
+                            created_by_client: { id: actor.id },
+                        });
+                    }
+                    await manager.update(ElectricProductVariant, current.id, data);
                 } else {
                     const saved = await manager.save(ElectricProductVariant, { ...this.variantData(variant), product: { id: existing.id } });
                     await this.openingEntry(manager, actor, existing, saved, 'Opening stock');
@@ -302,7 +306,7 @@ export class ElectricProductService {
             ),
         ]);
         const inRows = entries.map((row: any) => ({
-            kind: 'In',
+            kind: row.type === ElectricStockEntryType.CORRECTION ? 'Correction' : 'In',
             id: `in-${row.id}`,
             variant_id: Number(row.variant_id),
             variant_name: row.variant_name,
@@ -349,7 +353,7 @@ export class ElectricProductService {
         const costOfSold = roundAmount(outRows.reduce((sum: number, row: any) => sum + (row.cost || 0), 0));
         return {
             product,
-            variant: variant ? { id: variant.id, name: variant.name, sku: variant.sku, stock: variant.stock, cost_price: variant.cost_price, sale_price: variant.sale_price } : null,
+            variant: variant ? { id: variant.id, name: variant.name, stock: variant.stock, cost_price: variant.cost_price, sale_price: variant.sale_price } : null,
             rows,
             totals: {
                 pieces_in: piecesIn,

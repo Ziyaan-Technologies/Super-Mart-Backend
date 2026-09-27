@@ -8,6 +8,7 @@ import { ElectricCounter } from 'src/electric-counter/models/electric-counter.en
 import { ElectricCounterSession, ElectricSessionStatus } from 'src/electric-counter/models/electric-counter-session.entity';
 import { ElectricCashMove, ElectricCashMoveType } from 'src/electric-counter/models/electric-cash-move.entity';
 import { ElectricProductVariant } from 'src/electric-product/models/electric-product-variant.entity';
+import { ElectricCreditorEntry, ElectricCreditorEntryType } from 'src/electric-creditor/models/electric-creditor-entry.entity';
 import { ElectricPaymentMethod, ElectricSale, ElectricSaleStatus } from 'src/electric-sale/models/electric-sale.entity';
 import { ElectricSaleItem } from 'src/electric-sale/models/electric-sale-item.entity';
 import { ElectricBillPayment } from 'src/electric-sale/models/electric-bill-payment.entity';
@@ -180,6 +181,10 @@ export async function addCashMove(manager: EntityManager, actorId: number, sessi
     if (!String(body.reason || '').trim()) {
         throw new BadRequestException('Choose a reason');
     }
+    // a shop expense lands in the daily expense book, so it must say what it was for
+    if (String(body.reason).trim() === 'Shop expense' && !String(body.note || '').trim()) {
+        throw new BadRequestException('Write what the expense was for');
+    }
     if (type === ElectricCashMoveType.OUT && amount > (await sessionTotals(manager, session)).cash_now) {
         throw new BadRequestException('Cash out is more than the cash in the counter');
     }
@@ -222,6 +227,52 @@ export async function closeSession(manager: EntityManager, session: ElectricCoun
 
 export const lineKey = (line: any) => `${line.variant_id}|${Number(line.unit_price)}|${line.discount_type || 'percent'}|${Number(line.discount_value) || 0}`;
 
+/** the shopkeepers this shop's business owes money to */
+async function shopCreditors(manager: EntityManager, shopId: number, ids: number[]) {
+    if (!ids.length) {
+        return new Set<number>();
+    }
+    const rows = await manager.query(
+        `SELECT creditor.id FROM electric_creditors creditor
+         JOIN client_stores shop ON shop.vendor_id = creditor.vendor_id
+         WHERE shop.id = ? AND creditor.id IN (?) AND creditor.is_active = 1`,
+        [shopId, ids],
+    );
+    return new Set<number>(rows.map((row: any) => Number(row.id)));
+}
+
+/** what we owe a shopkeeper for an item of his is his cost times the pieces the customer kept */
+export async function syncCreditorEntry(manager: EntityManager, itemId: number, actorId: number) {
+    const item = await manager.findOne(ElectricSaleItem, { where: { id: itemId } });
+    const existing = await manager.findOne(ElectricCreditorEntry, { where: { sale_item: { id: itemId } } });
+    const kept = item ? roundQuantity(item.quantity - (item.returned_quantity || 0)) : 0;
+    const amount = item && item.creditor_id && item.cost_price !== null && kept > 0 ? roundAmount(item.cost_price * kept) : 0;
+    if (!amount) {
+        if (existing) {
+            await manager.delete(ElectricCreditorEntry, existing.id);
+        }
+        return;
+    }
+    const sale = await manager.findOne(ElectricSale, { where: { id: item.sale_id } });
+    const returned = roundQuantity(item.returned_quantity || 0);
+    const note = [`${item.product_name} · ${kept} pcs`, sale?.bill_number, returned ? `${returned} returned` : null].filter(Boolean).join(' · ');
+    if (existing) {
+        await manager.update(ElectricCreditorEntry, existing.id, { creditor: { id: item.creditor_id }, amount, note });
+        return;
+    }
+    const [creditor] = await manager.query('SELECT vendor_id FROM electric_creditors WHERE id = ?', [item.creditor_id]);
+    await manager.save(ElectricCreditorEntry, {
+        creditor: { id: item.creditor_id },
+        vendor: { id: Number(creditor.vendor_id) },
+        clientstore: sale ? { id: sale.clientstore_id } : null,
+        sale_item: { id: item.id },
+        type: ElectricCreditorEntryType.ITEM,
+        amount,
+        note,
+        created_by_client: { id: actorId },
+    });
+}
+
 export async function prepareLines(manager: EntityManager, granted: Granted, shopId: number, lines: any[], checkStock: boolean, approved = new Set<string>()) {
     if (!Array.isArray(lines) || !lines.length) {
         throw new BadRequestException('Add at least one item');
@@ -234,6 +285,7 @@ export async function prepareLines(manager: EntityManager, granted: Granted, sho
         query.setLock('pessimistic_write');
     }
     const variants = await query.getMany();
+    const creditors = await shopCreditors(manager, shopId, lines.filter((line) => line.is_outside && line.creditor_id).map((line) => Number(line.creditor_id)));
     const used = new Map<number, number>();
     return lines.map((line) => {
         const quantity = roundQuantity(Number(line.quantity));
@@ -254,7 +306,11 @@ export async function prepareLines(manager: EntityManager, granted: Granted, sho
             if (!String(line.product_name || '').trim()) {
                 throw new BadRequestException('Outside item needs a name');
             }
-            return { ...discount, product_id: null, variant_id: null, product_name: String(line.product_name).trim(), variant_name: '', image_url: null, quantity, unit_price: price, original_price: price, cost_price: null, is_outside: true };
+            const creditorId = line.creditor_id ? Number(line.creditor_id) : null;
+            if (creditorId && !creditors.has(creditorId)) {
+                throw new BadRequestException('That shopkeeper is not on your creditor list');
+            }
+            return { ...discount, product_id: null, variant_id: null, product_name: String(line.product_name).trim(), variant_name: '', image_url: null, quantity, unit_price: price, original_price: price, cost_price: null, is_outside: true, creditor_id: creditorId };
         }
         const variant = variants.find((row) => row.id === Number(line.variant_id));
         if (!variant || variant.product.clientstore_id !== shopId || !variant.product.is_active || !variant.is_active) {
@@ -284,6 +340,7 @@ export async function prepareLines(manager: EntityManager, granted: Granted, sho
             original_price: variant.sale_price,
             cost_price: variant.cost_price,
             is_outside: false,
+            creditor_id: null,
         };
     });
 }
@@ -307,7 +364,7 @@ export async function createSale(manager: EntityManager, actor: ElectricActor, b
     if (!session || session.status !== ElectricSessionStatus.OPEN) {
         throw new BadRequestException('Open a counter before making a bill');
     }
-    if (granted && session.cashier_id !== actor.id) {
+    if (granted && session.cashier_id !== actor.id && !granted.has('pos_any_counter')) {
         throw new ForbiddenException('This counter is opened by someone else');
     }
     const quotation = body.quotation_id ? await manager.findOne(ElectricQuotation, { where: { id: Number(body.quotation_id) }, relations: ['items'] }) : null;
@@ -366,7 +423,7 @@ export async function createSale(manager: EntityManager, actor: ElectricActor, b
         clientstore: { id: session.clientstore_id },
         counter: { id: session.counter_id },
         session: { id: session.id },
-        cashier: { id: session.cashier_id },
+        cashier: { id: actor.id },
         quotation_id: quotation?.id || null,
         debtor_id: debtor?.id || null,
         customer_name: debtor?.name || body.customer_name?.trim() || null,
@@ -478,6 +535,9 @@ export async function returnSale(manager: EntityManager, actor: ElectricActor, s
         if (!item.is_outside && item.variant_id) {
             await manager.increment(ElectricProductVariant, { id: item.variant_id }, 'stock', quantity);
         }
+        if (item.is_outside && item.creditor_id) {
+            await syncCreditorEntry(manager, item.id, actor.id);
+        }
     }
     const saleReturn = await manager.save(ElectricSaleReturn, {
         return_number: await nextNumber(manager, sale.clientstore_id, 'R'),
@@ -566,7 +626,7 @@ export function paymentState(sale: { total_amount: number; paid_amount: number; 
     };
 }
 
-export async function setItemCost(manager: EntityManager, actorId: number, itemId: number, cost: any, at = new Date()) {
+export async function setItemCost(manager: EntityManager, actorId: number, itemId: number, cost: any, creditorId?: any, at = new Date()) {
     const item = await manager.findOne(ElectricSaleItem, { where: { id: itemId } });
     if (!item || !item.is_outside) {
         throw new NotFoundException('Item not found');
@@ -575,7 +635,19 @@ export async function setItemCost(manager: EntityManager, actorId: number, itemI
     if (cost === '' || cost === null || cost === undefined || !(value >= 0)) {
         throw new BadRequestException('Enter the bought price');
     }
-    await manager.update(ElectricSaleItem, item.id, { cost_price: roundAmount(value), cost_entered_at: at, cost_entered_by: actorId });
+    const data: any = { cost_price: roundAmount(value), cost_entered_at: at, cost_entered_by: actorId };
+    if (creditorId !== undefined) {
+        const chosen = creditorId ? Number(creditorId) : null;
+        if (chosen) {
+            const sale = await manager.findOne(ElectricSale, { where: { id: item.sale_id } });
+            if (!(await shopCreditors(manager, sale.clientstore_id, [chosen])).has(chosen)) {
+                throw new BadRequestException('That shopkeeper is not on your creditor list');
+            }
+        }
+        data.creditor_id = chosen;
+    }
+    await manager.update(ElectricSaleItem, item.id, data);
+    await syncCreditorEntry(manager, item.id, actorId);
     return manager.findOne(ElectricSaleItem, { where: { id: item.id } });
 }
 
@@ -601,6 +673,7 @@ export function shopView(shop: any) {
         store_type: shop.store_type,
         address: shop.address,
         store_phone: shop.store_phone,
+        store_phones: shop.store_phones || [],
         image_url: shop.image_url,
         is_active: shop.is_active,
     };

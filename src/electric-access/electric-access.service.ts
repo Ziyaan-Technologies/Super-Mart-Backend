@@ -57,6 +57,50 @@ export class ElectricAccessService {
         return { id: actor.id, vendor_id: actor.vendor_id, electric_counter_id: client?.electric_counter_id || null };
     }
 
+    /** khata money you take or give yourself: your own open counter if you have one, otherwise no counter at all */
+    async cashSession(actor: AuthActor, shopId: number, requestedId?: any) {
+        const mine = await this.mySession(actor.id);
+        if (mine && (!requestedId || Number(requestedId) === mine.id)) {
+            return mine;
+        }
+        if (requestedId && (await this.can(actor, 'pos_any_counter'))) {
+            const chosen = await this.sessionRepository.findOne({
+                where: { id: Number(requestedId), status: ElectricSessionStatus.OPEN, clientstore: { id: shopId } },
+            });
+            if (chosen) {
+                return chosen;
+            }
+        }
+        return mine || null;
+    }
+
+    /** the session a sale, return or payment should land on: your own, or any open one with pos_any_counter */
+    async sessionFor(actor: AuthActor, shopId: number, requestedId?: any) {
+        const mine = await this.mySession(actor.id);
+        if (mine && (!requestedId || Number(requestedId) === mine.id)) {
+            return mine;
+        }
+        if (await this.can(actor, 'pos_any_counter')) {
+            const where: any = { status: ElectricSessionStatus.OPEN, clientstore: { id: shopId } };
+            if (requestedId) {
+                where.id = Number(requestedId);
+            }
+            const any = await this.sessionRepository.findOne({ where, order: { id: 'ASC' } });
+            if (any) {
+                return any;
+            }
+        }
+        return mine;
+    }
+
+    openSessions(shopId: number) {
+        return this.sessionRepository.find({
+            where: { status: ElectricSessionStatus.OPEN, clientstore: { id: shopId } },
+            relations: ['counter', 'cashier'],
+            order: { id: 'ASC' },
+        });
+    }
+
     mySession(actorId: number) {
         return this.sessionRepository.findOne({ where: { cashier: { id: actorId }, status: ElectricSessionStatus.OPEN } });
     }

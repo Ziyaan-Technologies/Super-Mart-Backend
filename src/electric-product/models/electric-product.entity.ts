@@ -44,9 +44,6 @@ export class ElectricProduct {
   @Column()
   name: string;
 
-  @Column({ type: 'text', nullable: true })
-  description: string;
-
   @Column({ nullable: true })
   image_url: string;
 

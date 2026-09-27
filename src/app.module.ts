@@ -36,6 +36,8 @@ import { ElectricCategoryModule } from './electric-category/electric-category.mo
 import { ElectricProductModule } from './electric-product/electric-product.module';
 import { ElectricCounterModule } from './electric-counter/electric-counter.module';
 import { ElectricDebtorModule } from './electric-debtor/electric-debtor.module';
+import { ElectricCreditorModule } from './electric-creditor/electric-creditor.module';
+import { ElectricExpenseModule } from './electric-expense/electric-expense.module';
 import { ElectricSaleModule } from './electric-sale/electric-sale.module';
 import { ElectricQuotationModule } from './electric-quotation/electric-quotation.module';
 import { ElectricUserModule } from './electric-user/electric-user.module';
@@ -90,6 +92,8 @@ import { ElectricShopModule } from './electric-shop/electric-shop.module';
         ElectricProductModule,
         ElectricCounterModule,
     ElectricDebtorModule,
+    ElectricCreditorModule,
+    ElectricExpenseModule,
         ElectricSaleModule,
         ElectricQuotationModule,
         ElectricUserModule,

@@ -158,7 +158,7 @@ export class ElectricSaleService {
         await this.access.need(actor, 'pos_return', 'You cannot return bills');
         const sale = await this.seeSale(actor, id);
         const record = await this.access.record(actor);
-        const session = await this.access.mySession(actor.id);
+        const session = await this.access.sessionFor(actor, sale.clientstore_id, body.session_id);
         const returnId = await this.dataSource.transaction((manager) => returnSale(manager, record, sale.id, session, body));
         const view = await this.saleView(await this.saleRepository.findOne({ where: { id: sale.id }, relations: this.saleRelations }));
         return { sale: view, return: view.returns.find((row: any) => row.id === returnId) };
@@ -168,7 +168,7 @@ export class ElectricSaleService {
         await this.access.need(actor, 'sales_payment', 'You cannot take payments on bills');
         const sale = await this.seeSale(actor, id);
         const record = await this.access.record(actor);
-        const session = await this.access.mySession(actor.id);
+        const session = await this.access.sessionFor(actor, sale.clientstore_id, body.session_id);
         await this.dataSource.transaction((manager) => payBill(manager, record, sale.id, session, body));
         return this.saleView(await this.saleRepository.findOne({ where: { id: sale.id }, relations: this.saleRelations }));
     }
@@ -234,6 +234,8 @@ export class ElectricSaleService {
         const items = await query.getMany();
         const enteredBy = [...new Set(items.map((item) => item.cost_entered_by).filter(Boolean))];
         const people = enteredBy.length ? await this.dataSource.query('SELECT id, full_name FROM clients WHERE id IN (?)', [enteredBy]) : [];
+        const creditorIds = [...new Set(items.map((item) => item.creditor_id).filter(Boolean))];
+        const creditors = creditorIds.length ? await this.dataSource.query('SELECT id, name FROM electric_creditors WHERE id IN (?)', [creditorIds]) : [];
         return items
             .map(({ sale, ...item }) => ({
                 ...item,
@@ -244,6 +246,7 @@ export class ElectricSaleService {
                 session_id: sale.session_id,
                 session_status: sale.session?.status,
                 entered_by: brief(people.find((person: any) => person.id === item.cost_entered_by)),
+                creditor: creditors.find((row: any) => row.id === item.creditor_id) || null,
             }))
             .filter((item) => !options.status || item.status === options.status);
     }
@@ -267,12 +270,12 @@ export class ElectricSaleService {
         return { count: items.length, mine: session ? items.filter((item) => item.session_id === session.id).length : 0 };
     }
 
-    async enterCost(actor: AuthActor, itemId: number, cost: any) {
+    async enterCost(actor: AuthActor, itemId: number, cost: any, creditorId?: any) {
         await this.access.need(actor, 'pending_costs_edit', 'You cannot enter bought prices');
         const item = await this.itemRepository.findOne({ where: { id: itemId } });
         if (!item) throw new NotFoundException('Item not found');
         await this.seeSale(actor, item.sale_id);
-        const saved = await this.dataSource.transaction((manager) => setItemCost(manager, actor.id, itemId, cost));
+        const saved = await this.dataSource.transaction((manager) => setItemCost(manager, actor.id, itemId, cost, creditorId));
         return { ...saved, profit: roundAmount(saved.total - saved.cost_price * saved.quantity) };
     }
 
