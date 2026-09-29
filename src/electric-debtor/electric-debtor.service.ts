@@ -53,6 +53,7 @@ export class ElectricDebtorService {
     private view(debtor: ElectricDebtor, totals?: { billed: number; paid: number; bills: number; last_payment: Date | null }) {
         return {
             id: debtor.id,
+            clientstore_id: debtor.clientstore_id,
             name: debtor.name,
             phone: debtor.phone,
             address: debtor.address,
@@ -74,11 +75,13 @@ export class ElectricDebtorService {
         if (!debtor) {
             throw new NotFoundException('Debtor not found');
         }
+        await this.access.shop(actor, debtor.clientstore_id);
         return debtor;
     }
 
     async list(actor: AuthActor, body: ElectricListDto) {
-        const query = this.debtorRepository.createQueryBuilder('debtor').where('debtor.vendor_id = :vendorId', { vendorId: actor.vendor_id });
+        const shop = await this.access.shop(actor, body.clientstore_id);
+        const query = this.debtorRepository.createQueryBuilder('debtor').where('debtor.clientstore_id = :shopId', { shopId: shop.id });
         if (body.search) {
             query.andWhere('(debtor.name LIKE :search OR debtor.phone LIKE :search)', { search: `%${body.search}%` });
         }
@@ -99,8 +102,9 @@ export class ElectricDebtorService {
         return { data: data.slice((page - 1) * take, page * take), meta: { total: data.length, page, last_page: Math.ceil(data.length / take) } };
     }
 
-    async kpis(actor: AuthActor) {
-        const rows = await this.debtorRepository.find({ where: { vendor: { id: actor.vendor_id } } });
+    async kpis(actor: AuthActor, clientstoreId: any) {
+        const shop = await this.access.shop(actor, clientstoreId);
+        const rows = await this.debtorRepository.find({ where: { clientstore: { id: shop.id } } });
         const totals = await this.balances(actor.vendor_id, rows.map((row) => row.id));
         const views = rows.map((row) => this.view(row, totals.get(row.id)));
         return {
@@ -110,9 +114,10 @@ export class ElectricDebtorService {
         };
     }
 
-    async dropdown(actor: AuthActor, search: any) {
+    async dropdown(actor: AuthActor, clientstoreId: any, search: any) {
+        const shop = await this.access.shop(actor, clientstoreId);
         const query = this.debtorRepository.createQueryBuilder('debtor')
-            .where('debtor.vendor_id = :vendorId', { vendorId: actor.vendor_id })
+            .where('debtor.clientstore_id = :shopId', { shopId: shop.id })
             .andWhere('debtor.is_active = 1');
         const term = String(search || '').trim();
         if (term) {
@@ -169,8 +174,10 @@ export class ElectricDebtorService {
     }
 
     async create(actor: AuthActor, body: ElectricDebtorDto) {
+        const shop = await this.access.shop(actor, body.clientstore_id);
         const saved = await this.debtorRepository.save({
             vendor: { id: actor.vendor_id },
+            clientstore: { id: shop.id },
             name: body.name.trim(),
             phone: body.phone?.trim() || null,
             address: body.address?.trim() || null,

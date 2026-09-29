@@ -233,9 +233,7 @@ async function shopCreditors(manager: EntityManager, shopId: number, ids: number
         return new Set<number>();
     }
     const rows = await manager.query(
-        `SELECT creditor.id FROM electric_creditors creditor
-         JOIN client_stores shop ON shop.vendor_id = creditor.vendor_id
-         WHERE shop.id = ? AND creditor.id IN (?) AND creditor.is_active = 1`,
+        'SELECT id FROM electric_creditors WHERE clientstore_id = ? AND id IN (?) AND is_active = 1',
         [shopId, ids],
     );
     return new Set<number>(rows.map((row: any) => Number(row.id)));
@@ -388,10 +386,10 @@ export async function createSale(manager: EntityManager, actor: ElectricActor, b
     const { bill, items } = documentLines(lines, discounts);
     const method = Object.values(ElectricPaymentMethod).includes(body.payment_method) ? body.payment_method : ElectricPaymentMethod.CASH;
     const debtor = body.debtor_id
-        ? await manager.findOne(ElectricDebtor, { where: { id: Number(body.debtor_id), vendor: { id: session.vendor_id } } })
+        ? await manager.findOne(ElectricDebtor, { where: { id: Number(body.debtor_id), clientstore: { id: session.clientstore_id } } })
         : null;
     if (body.debtor_id && !debtor) {
-        throw new NotFoundException('Debtor not found');
+        throw new NotFoundException('This customer is not on this shop\'s khata list');
     }
     const dueDate = String(body.due_date || '').trim() || null;
     const payLater = !!debtor || !!dueDate || body.paid_amount !== undefined;

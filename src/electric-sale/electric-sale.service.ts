@@ -184,8 +184,8 @@ export class ElectricSaleService {
         }
         const debtorId = await this.dataSource.transaction(async (manager) => {
             if (body.debtor_id) {
-                const existing = await manager.findOne(ElectricDebtor, { where: { id: Number(body.debtor_id), vendor: { id: actor.vendor_id } } });
-                if (!existing) throw new NotFoundException('Debtor not found');
+                const existing = await manager.findOne(ElectricDebtor, { where: { id: Number(body.debtor_id), clientstore: { id: sale.clientstore_id } } });
+                if (!existing) throw new NotFoundException('This customer is not on this shop\'s khata list');
                 return existing.id;
             }
             const name = String(body.name || sale.customer_name || '').trim();
@@ -193,6 +193,7 @@ export class ElectricSaleService {
             const phone = String(body.phone || sale.customer_phone || '').trim() || null;
             const saved = await manager.save(ElectricDebtor, {
                 vendor: { id: actor.vendor_id },
+                clientstore: { id: sale.clientstore_id },
                 name,
                 phone,
                 address: body.address?.trim() || null,
@@ -211,7 +212,7 @@ export class ElectricSaleService {
         const phone = String(sale.customer_phone || '').trim();
         const name = String(sale.customer_name || '').trim();
         const found = phone
-            ? await this.debtorRepository.findOne({ where: { phone, vendor: { id: actor.vendor_id } } })
+            ? await this.debtorRepository.findOne({ where: { phone, clientstore: { id: sale.clientstore_id } } })
             : null;
         return {
             name,

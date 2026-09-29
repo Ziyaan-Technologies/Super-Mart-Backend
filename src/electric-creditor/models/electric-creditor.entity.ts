@@ -1,5 +1,6 @@
 import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, RelationId, UpdateDateColumn } from 'typeorm';
 import { DecimalTransformer } from 'src/common/decimal.transformer';
+import { Clientstore } from 'src/clientstore/models/clientstore.entity';
 import { Vendor } from 'src/vendor/models/vendor.entity';
 
 @Entity('electric_creditors')
@@ -13,6 +14,13 @@ export class ElectricCreditor {
 
   @RelationId((creditor: ElectricCreditor) => creditor.vendor)
   vendor_id: number;
+
+  @ManyToOne(() => Clientstore, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'clientstore_id' })
+  clientstore: Clientstore;
+
+  @RelationId((creditor: ElectricCreditor) => creditor.clientstore)
+  clientstore_id: number;
 
   @Column()
   name: string;

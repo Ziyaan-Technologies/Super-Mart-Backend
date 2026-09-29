@@ -2,6 +2,10 @@ import { PartialType } from '@nestjs/mapped-types';
 import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class ElectricCreditorDto {
+    @IsOptional()
+    @IsNumber()
+    clientstore_id: number;
+
     @IsNotEmpty()
     @IsString()
     name: string;

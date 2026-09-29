@@ -21,14 +21,14 @@ export class ElectricCreditorController {
 
     @HasPermission('creditors_view')
     @Post('v1/kpis')
-    kpis(@Actor() actor: AuthActor) {
-        return this.creditorService.kpis(actor);
+    kpis(@Actor() actor: AuthActor, @Body() body: ElectricListDto) {
+        return this.creditorService.kpis(actor, body.clientstore_id);
     }
 
     @HasPermission('pos_outside_item', 'creditors_view')
     @Get('list')
-    dropdown(@Actor() actor: AuthActor, @Query('search') search: string) {
-        return this.creditorService.dropdown(actor, search);
+    dropdown(@Actor() actor: AuthActor, @Query('clientstore_id') clientstoreId: number, @Query('search') search: string) {
+        return this.creditorService.dropdown(actor, clientstoreId, search);
     }
 
     @HasPermission('creditors_view')

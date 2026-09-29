@@ -59,6 +59,7 @@ export class ElectricCreditorService {
         const balance = roundAmount(creditor.opening_balance + (totals?.taken || 0) - (totals?.paid || 0));
         return {
             id: creditor.id,
+            clientstore_id: creditor.clientstore_id,
             name: creditor.name,
             phone: creditor.phone,
             address: creditor.address,
@@ -82,11 +83,13 @@ export class ElectricCreditorService {
         if (!creditor) {
             throw new NotFoundException('Creditor not found');
         }
+        await this.access.shop(actor, creditor.clientstore_id);
         return creditor;
     }
 
     async list(actor: AuthActor, body: ElectricListDto) {
-        const query = this.creditorRepository.createQueryBuilder('creditor').where('creditor.vendor_id = :vendorId', { vendorId: actor.vendor_id });
+        const shop = await this.access.shop(actor, body.clientstore_id);
+        const query = this.creditorRepository.createQueryBuilder('creditor').where('creditor.clientstore_id = :shopId', { shopId: shop.id });
         if (body.search) {
             query.andWhere('(creditor.name LIKE :search OR creditor.phone LIKE :search)', { search: `%${body.search}%` });
         }
@@ -110,8 +113,9 @@ export class ElectricCreditorService {
         return { data: data.slice((page - 1) * take, page * take), meta: { total: data.length, page, last_page: Math.ceil(data.length / take) } };
     }
 
-    async kpis(actor: AuthActor) {
-        const rows = await this.creditorRepository.find({ where: { vendor: { id: actor.vendor_id } } });
+    async kpis(actor: AuthActor, clientstoreId: any) {
+        const shop = await this.access.shop(actor, clientstoreId);
+        const rows = await this.creditorRepository.find({ where: { clientstore: { id: shop.id } } });
         const totals = await this.balances(actor.vendor_id, rows.map((row) => row.id));
         const views = rows.map((row) => this.view(row, totals.get(row.id)));
         return {
@@ -121,9 +125,10 @@ export class ElectricCreditorService {
         };
     }
 
-    async dropdown(actor: AuthActor, search: any) {
+    async dropdown(actor: AuthActor, clientstoreId: any, search: any) {
+        const shop = await this.access.shop(actor, clientstoreId);
         const query = this.creditorRepository.createQueryBuilder('creditor')
-            .where('creditor.vendor_id = :vendorId', { vendorId: actor.vendor_id })
+            .where('creditor.clientstore_id = :shopId', { shopId: shop.id })
             .andWhere('creditor.is_active = 1');
         const term = String(search || '').trim();
         if (term) {
@@ -174,8 +179,10 @@ export class ElectricCreditorService {
     }
 
     async create(actor: AuthActor, body: ElectricCreditorDto) {
+        const shop = await this.access.shop(actor, body.clientstore_id);
         const saved = await this.creditorRepository.save({
             vendor: { id: actor.vendor_id },
+            clientstore: { id: shop.id },
             name: body.name.trim(),
             phone: body.phone?.trim() || null,
             address: body.address?.trim() || null,
