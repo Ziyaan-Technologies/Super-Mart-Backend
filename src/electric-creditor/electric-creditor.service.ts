@@ -4,7 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { AuthActor } from 'src/common/auth-actor';
 import { roundAmount } from 'src/common/decimal.transformer';
 import { ElectricListDto } from 'src/common/electric.dto';
-import { addCashMove, brief } from 'src/common/electric-document';
+import { SUPPLIER_REASON, addCashMove, brief } from 'src/common/electric-document';
 import { ElectricAccessService } from 'src/electric-access/electric-access.service';
 import { ElectricCashMoveType } from 'src/electric-counter/models/electric-cash-move.entity';
 import { ElectricPaymentMethod } from 'src/electric-sale/models/electric-sale.entity';
@@ -13,7 +13,6 @@ import { ElectricCreditorEntry, ElectricCreditorEntryType } from './models/elect
 import { ElectricCreditorPayment } from './models/electric-creditor-payment.entity';
 import { ElectricCreditorDto, ElectricCreditorEntryDto, ElectricCreditorPaymentDto, ElectricCreditorUpdateDto } from './models/electric-creditor.dto';
 
-export const SUPPLIER_PAYMENT_REASON = 'Supplier payment';
 
 @Injectable()
 export class ElectricCreditorService {
@@ -254,20 +253,23 @@ export class ElectricCreditorService {
             : null;
         const note = body.note?.trim() || null;
         await this.dataSource.transaction(async (manager) => {
+            // cash out of a counter writes the khata payment itself, so it is saved once
             if (session) {
                 await addCashMove(manager, actor.id, session, {
                     type: ElectricCashMoveType.OUT,
-                    reason: SUPPLIER_PAYMENT_REASON,
+                    reason: SUPPLIER_REASON,
                     amount,
-                    note: [creditor.name, note].filter(Boolean).join(' · '),
+                    note,
+                    creditor_id: creditor.id,
                 });
+                return;
             }
             await manager.save(ElectricCreditorPayment, {
                 creditor: { id: creditor.id },
                 vendor: { id: actor.vendor_id },
-                clientstore: session ? { id: session.clientstore_id } : (body.clientstore_id ? { id: Number(body.clientstore_id) } : null),
-                counter: session ? { id: session.counter_id } : null,
-                session: session ? { id: session.id } : null,
+                clientstore: body.clientstore_id ? { id: Number(body.clientstore_id) } : null,
+                counter: null,
+                session: null,
                 amount,
                 method,
                 note,

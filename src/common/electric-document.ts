@@ -9,6 +9,7 @@ import { ElectricCounterSession, ElectricSessionStatus } from 'src/electric-coun
 import { ElectricCashMove, ElectricCashMoveType } from 'src/electric-counter/models/electric-cash-move.entity';
 import { ElectricProductVariant } from 'src/electric-product/models/electric-product-variant.entity';
 import { ElectricCreditorEntry, ElectricCreditorEntryType } from 'src/electric-creditor/models/electric-creditor-entry.entity';
+import { ElectricCreditorPayment } from 'src/electric-creditor/models/electric-creditor-payment.entity';
 import { ElectricPaymentMethod, ElectricSale, ElectricSaleStatus } from 'src/electric-sale/models/electric-sale.entity';
 import { ElectricSaleItem } from 'src/electric-sale/models/electric-sale-item.entity';
 import { ElectricBillPayment } from 'src/electric-sale/models/electric-bill-payment.entity';
@@ -169,6 +170,8 @@ export async function openSession(manager: EntityManager, actor: ElectricActor, 
     return manager.findOne(ElectricCounterSession, { where: { id: session.id } });
 }
 
+export const SUPPLIER_REASON = 'Paid another shopkeeper';
+
 export async function addCashMove(manager: EntityManager, actorId: number, session: ElectricCounterSession, body: any, at = new Date()) {
     if (session.status !== ElectricSessionStatus.OPEN) {
         throw new BadRequestException('This counter is closed');
@@ -185,8 +188,35 @@ export async function addCashMove(manager: EntityManager, actorId: number, sessi
     if (String(body.reason).trim() === 'Shop expense' && !String(body.note || '').trim()) {
         throw new BadRequestException('Write what the expense was for');
     }
+    // paying a shopkeeper comes off his khata, so it has to say which one
+    const creditorId = String(body.reason).trim() === SUPPLIER_REASON ? Number(body.creditor_id) || 0 : 0;
+    if (String(body.reason).trim() === SUPPLIER_REASON && !creditorId) {
+        throw new BadRequestException('Choose the shopkeeper this money is for');
+    }
+    let creditorName = '';
+    if (creditorId) {
+        const [creditor] = await manager.query('SELECT name FROM electric_creditors WHERE id = ? AND clientstore_id = ? AND is_active = 1', [creditorId, session.clientstore_id]);
+        if (!creditor) {
+            throw new BadRequestException('That shopkeeper is not on your creditor list');
+        }
+        creditorName = creditor.name;
+    }
     if (type === ElectricCashMoveType.OUT && amount > (await sessionTotals(manager, session)).cash_now) {
         throw new BadRequestException('Cash out is more than the cash in the counter');
+    }
+    if (creditorId) {
+        await manager.save(ElectricCreditorPayment, {
+            creditor: { id: creditorId },
+            vendor: { id: session.vendor_id },
+            clientstore: { id: session.clientstore_id },
+            counter: { id: session.counter_id },
+            session: { id: session.id },
+            amount,
+            method: ElectricPaymentMethod.CASH,
+            note: body.note?.trim() || null,
+            paid_by_client: { id: actorId },
+            created_at: at,
+        });
     }
     return manager.save(ElectricCashMove, {
         session: { id: session.id },
@@ -195,7 +225,7 @@ export async function addCashMove(manager: EntityManager, actorId: number, sessi
         type,
         reason: String(body.reason).trim(),
         amount,
-        note: body.note?.trim() || null,
+        note: [creditorName, body.note?.trim()].filter(Boolean).join(' · ') || null,
         created_by_client: { id: actorId },
         created_at: at,
     });
