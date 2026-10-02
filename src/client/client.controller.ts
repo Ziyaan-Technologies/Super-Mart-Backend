@@ -10,6 +10,7 @@ import { HasPermission } from 'src/permission/has-permission.decorator';
 import { ClientstoreService } from 'src/clientstore/clientstore.service';
 import { RoleService } from 'src/role/role.service';
 import { ClientService } from './client.service';
+import { CashierCounterService } from 'src/pos/cashier-counter.service';
 import { ClientType } from './models/client.entity';
 import { ClientCreateDto, ClientListDto, ClientUpdateDto } from './models/client.dto';
 
@@ -21,6 +22,7 @@ export class ClientController {
         private clientService: ClientService,
         private clientstoreService: ClientstoreService,
         private roleService: RoleService,
+        private cashierCounterService: CashierCounterService,
         private exportService: ExportService
     ) { }
 
@@ -116,6 +118,7 @@ export class ClientController {
             password: await bcrypt.hash(body.password, 12),
             vendor: { id: vendorId },
         });
+        await this.cashierCounterService.sync(client.id);
         return this.get(actor, client.id);
     }
 
@@ -159,6 +162,7 @@ export class ClientController {
         if (body.password) {
             await this.clientService.increment({ id: client.id }, 'token_version', 1);
         }
+        await this.cashierCounterService.sync(client.id);
         return this.get(actor, client.id);
     }
 

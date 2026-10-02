@@ -42,11 +42,16 @@ export class ProductVariant {
   @Column({ type: 'decimal', precision: 20, scale: 2, default: 0, transformer: DecimalTransformer })
   sale_price: number;
 
-  @Column({ type: 'decimal', precision: 20, scale: 2, nullable: true, transformer: DecimalTransformer })
+  // No longer used; the column is kept so existing values are not dropped.
+  @Column({ type: 'decimal', precision: 20, scale: 2, nullable: true, transformer: DecimalTransformer, select: false })
   mrp: number;
 
   @Column({ type: 'decimal', precision: 18, scale: 3, default: 0, transformer: DecimalTransformer })
   reorder_level: number;
+
+  // When Mart stock falls to this level it should be refilled from the warehouse.
+  @Column({ type: 'decimal', precision: 18, scale: 3, default: 0, transformer: DecimalTransformer })
+  mart_min_level: number;
 
   @Column({ default: true })
   is_active: boolean;

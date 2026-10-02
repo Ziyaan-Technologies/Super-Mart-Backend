@@ -34,7 +34,7 @@ export class GoodsReceipt {
   @RelationId((receipt: GoodsReceipt) => receipt.clientstore)
   clientstore_id: number;
 
-  @ManyToOne(() => Supplier)
+  @ManyToOne(() => Supplier, { nullable: true })
   @JoinColumn({ name: 'supplier_id' })
   supplier: Supplier;
 

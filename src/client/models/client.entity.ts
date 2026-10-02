@@ -63,6 +63,10 @@ export class Client {
 	@Column({ nullable: true })
 	electric_counter_id: number;
 
+	// The only POS counter this cashier can sell from.
+	@Column({ nullable: true })
+	pos_counter_id: number;
+
 	@ManyToOne(() => Role)
 	@JoinColumn({ name: 'role_id' })
 	role: Role;

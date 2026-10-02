@@ -105,6 +105,14 @@ export class ProductController {
         return this.get(actor, product.id);
     }
 
+    @HasPermission('products_create', 'products_edit')
+    @Post(':id/barcodes')
+    async assignBarcodes(@Actor() actor: AuthActor, @Param('id') id: number) {
+        const product = await this.productService.accessible(actor, id);
+        await this.productService.assignMissingBarcodes(product);
+        return this.get(actor, product.id);
+    }
+
     @HasPermission('products_delete')
     @Delete(':id')
     async delete(@Actor() actor: AuthActor, @Param('id') id: number) {

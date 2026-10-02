@@ -100,7 +100,7 @@ export class ClientstoreController {
             where.id = actor.clientstore_id;
         }
         return this.clientstoreService.findByColumns(
-            { id: true, store_name: true, store_code: true, image_url: true, address: true, is_pos_active: true, vendor: { id: true, business_name: true }, city: { id: true, name: true } },
+            { id: true, store_name: true, store_code: true, store_type: true, image_url: true, address: true, is_pos_active: true, vendor: { id: true, business_name: true }, city: { id: true, name: true } },
             ['vendor', 'city'],
             where,
             { store_name: 'ASC' },
@@ -111,7 +111,7 @@ export class ClientstoreController {
     @Get('directory')
     async directory(@Actor() actor: AuthActor) {
         return this.clientstoreService.findByColumns(
-            { id: true, store_name: true, store_code: true },
+            { id: true, store_name: true, store_code: true, store_type: true },
             [],
             { vendor: { id: actor.vendor_id }, is_active: true },
             { store_name: 'ASC' },

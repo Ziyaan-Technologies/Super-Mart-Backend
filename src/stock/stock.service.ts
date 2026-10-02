@@ -5,9 +5,15 @@ import * as moment from 'moment-timezone';
 import { roundAmount, roundCost, roundQuantity } from 'src/common/decimal.transformer';
 import { ProductVariant } from 'src/product/models/product-variant.entity';
 import { Vendor } from 'src/vendor/models/vendor.entity';
+import { StoreType } from 'src/clientstore/models/clientstore.entity';
 import { Stock } from './models/stock.entity';
 import { StockBatch } from './models/stock-batch.entity';
 import { INBOUND_MOVEMENTS, StockMovement, StockMovementType } from './models/stock-movement.entity';
+
+// Per-location quantities. Stores with no type are treated as the Mart.
+const WAREHOUSE_QUANTITY = `COALESCE(SUM(CASE WHEN location.store_type = '${StoreType.WAREHOUSE}' THEN stock.quantity ELSE 0 END), 0)`;
+const MART_QUANTITY = `COALESCE(SUM(CASE WHEN location.store_type IS NULL OR location.store_type <> '${StoreType.WAREHOUSE}' THEN stock.quantity ELSE 0 END), 0)`;
+const REFILL_CONDITION = `MAX(variant.mart_min_level) > 0 AND ${MART_QUANTITY} <= MAX(variant.mart_min_level) AND ${WAREHOUSE_QUANTITY} > 0`;
 
 export interface BatchAllocation {
     batch_number: string | null;
@@ -241,6 +247,7 @@ export class StockService {
         } else {
             query.leftJoin('stocks', 'stock', 'stock.product_variant_id = variant.id');
         }
+        query.leftJoin('client_stores', 'location', 'location.id = stock.clientstore_id');
         if (filter.vendorId) {
             query.andWhere('variant.vendor_id = :vendorId', { vendorId: filter.vendorId });
         }
@@ -261,8 +268,20 @@ export class StockService {
             query.having(`${quantityExpression} > 0 AND ${quantityExpression} <= MAX(variant.reorder_level)`);
         } else if (filter.stockStatus === 'in') {
             query.having(`${quantityExpression} > 0`);
+        } else if (filter.stockStatus === 'refill') {
+            query.having(`${REFILL_CONDITION}`);
         }
         return query;
+    }
+
+    // Fill the Mart back up to twice its minimum, limited to what the warehouse holds.
+    private refillQuantity(minLevel: number, martQuantity: number, warehouseQuantity: number): number {
+        return roundQuantity(Math.max(0, Math.min(warehouseQuantity, minLevel * 2 - martQuantity)));
+    }
+
+    async refillSuggestions(vendorId: number) {
+        const { data } = await this.stockList({ vendorId, stockStatus: 'refill' }, 1, 500, 'Name');
+        return data.filter((row) => row.refill_quantity > 0);
     }
 
     async stockList(filter: StockListFilter, page: number, take: number, sortBy?: string) {
@@ -290,6 +309,7 @@ export class StockService {
                 'variant.sale_price AS sale_price',
                 'variant.cost_price AS cost_price',
                 'variant.reorder_level AS reorder_level',
+                'variant.mart_min_level AS mart_min_level',
                 'product.id AS product_id',
                 'product.name AS product_name',
                 'product.image_url AS image_url',
@@ -301,6 +321,8 @@ export class StockService {
             ])
             .addSelect('COALESCE(SUM(stock.quantity), 0)', 'quantity')
             .addSelect('COALESCE(SUM(stock.quantity * stock.average_cost), 0)', 'stock_value')
+            .addSelect(WAREHOUSE_QUANTITY, 'warehouse_quantity')
+            .addSelect(MART_QUANTITY, 'mart_quantity')
             .orderBy(sortField, sortDirection as 'ASC' | 'DESC')
             .offset((page - 1) * take)
             .limit(take)
@@ -309,11 +331,20 @@ export class StockService {
             const quantity = roundQuantity(parseFloat(row.quantity));
             const reorderLevel = parseFloat(row.reorder_level);
             const stockValue = roundAmount(parseFloat(row.stock_value));
+            const warehouseQuantity = roundQuantity(parseFloat(row.warehouse_quantity));
+            const martQuantity = roundQuantity(parseFloat(row.mart_quantity));
+            const martMinLevel = parseFloat(row.mart_min_level);
+            const needsRefill = martMinLevel > 0 && martQuantity <= martMinLevel && warehouseQuantity > 0;
             return {
                 ...row,
                 sale_price: parseFloat(row.sale_price),
                 cost_price: parseFloat(row.cost_price),
                 reorder_level: reorderLevel,
+                mart_min_level: martMinLevel,
+                warehouse_quantity: warehouseQuantity,
+                mart_quantity: martQuantity,
+                needs_refill: needsRefill,
+                refill_quantity: needsRefill ? this.refillQuantity(martMinLevel, martQuantity, warehouseQuantity) : 0,
                 track_expiry: Boolean(Number(row.track_expiry)),
                 is_weighted: Boolean(Number(row.is_weighted)),
                 stock_unit: Number(row.is_weighted) ? row.unit_short_name : 'pcs',
@@ -340,11 +371,13 @@ export class StockService {
             .addSelect('COALESCE(SUM(rows.stock_value), 0)', 'stock_value')
             .addSelect('SUM(CASE WHEN rows.quantity <= 0 THEN 1 ELSE 0 END)', 'out_of_stock')
             .addSelect('SUM(CASE WHEN rows.quantity > 0 AND rows.quantity <= rows.reorder_level THEN 1 ELSE 0 END)', 'low_stock')
+            .addSelect('COALESCE(SUM(rows.needs_refill), 0)', 'refill_mart')
             .from(`(${this.stockQuery({ ...filter, stockStatus: undefined })
                 .select('variant.id', 'id')
                 .addSelect('COALESCE(SUM(stock.quantity), 0)', 'quantity')
                 .addSelect('COALESCE(SUM(stock.quantity * stock.average_cost), 0)', 'stock_value')
                 .addSelect('MAX(variant.reorder_level)', 'reorder_level')
+                .addSelect(`CASE WHEN ${REFILL_CONDITION} THEN 1 ELSE 0 END`, 'needs_refill')
                 .getQuery()})`, 'rows')
             .setParameters(this.stockQuery(filter).getParameters())
             .getRawOne();
@@ -372,6 +405,7 @@ export class StockService {
             stockValue: roundAmount(parseFloat(summary?.stock_value || 0)),
             lowStock: Number(summary?.low_stock || 0),
             outOfStock: Number(summary?.out_of_stock || 0),
+            refillMart: Number(summary?.refill_mart || 0),
             expiringSoon,
             expired,
         };

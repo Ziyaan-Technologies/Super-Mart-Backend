@@ -63,7 +63,7 @@ export class PosController {
     @HasPermission('pos_sell', 'pos_manage')
     @Get('counters/list')
     async counterDropdown(@Actor() actor: AuthActor, @Query('clientstore_id') clientstoreId: number) {
-        return this.posService.counters(actor, clientstoreId, true);
+        return this.posService.counters(actor, clientstoreId, true, '', true);
     }
 
     @HasPermission('pos_manage')

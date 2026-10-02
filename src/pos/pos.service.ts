@@ -15,6 +15,9 @@ import { User } from 'src/user/models/user.entity';
 import { Bank } from 'src/bank/models/bank.entity';
 import { RegisterSession, RegisterSessionStatus } from './models/register-session.entity';
 import { PosCounter } from './models/pos-counter.entity';
+import { CashierCounterService } from './cashier-counter.service';
+import { RoleService } from 'src/role/role.service';
+import { Client } from 'src/client/models/client.entity';
 import { Sale, SaleStatus } from './models/sale.entity';
 import { SaleItem } from './models/sale-item.entity';
 import { PaymentMethod, SalePayment } from './models/sale-payment.entity';
@@ -47,6 +50,8 @@ export class PosService {
         private clientstoreService: ClientstoreService,
         private productService: ProductService,
         private stockService: StockService,
+        private cashierCounterService: CashierCounterService,
+        private roleService: RoleService,
     ) {
     }
 
@@ -57,7 +62,9 @@ export class PosService {
         if (!storeId) {
             throw new BadRequestException('Choose a store first');
         }
-        return this.clientstoreService.accessible(actor, storeId);
+        const store = await this.clientstoreService.accessible(actor, storeId);
+        this.clientstoreService.assertCanSell(store);
+        return store;
     }
 
     async currentSession(actor: AuthActor, clientstoreId?: number) {
@@ -71,6 +78,7 @@ export class PosService {
     // Sessions from before counters existed are moved onto counters: closed ones onto the
     // branch's first counter (so the owner keeps their history), open ones onto a free counter.
     async onModuleInit() {
+        await this.cashierCounterService.syncAll();
         const legacy = await this.sessionRepository.find({ where: { counter: IsNull() }, order: { id: 'ASC' } });
         for (const session of legacy) {
             const counters = await this.ensureCounters(session.vendor_id, session.clientstore_id);
@@ -103,9 +111,17 @@ export class PosService {
         return this.counterRepository.find({ where, order: { id: 'ASC' } });
     }
 
-    private async nextCounterName(storeId: number) {
-        const count = await this.counterRepository.count({ where: { clientstore: { id: storeId } }, withDeleted: true });
-        return `Counter ${count + 1}`;
+    private nextCounterName(storeId: number) {
+        return this.cashierCounterService.nextCounterName(storeId);
+    }
+
+    // The counter a cashier is limited to, or null when the user can use every counter.
+    async ownCounterId(actor: AuthActor) {
+        if ((await this.roleService.permissionKeys(actor.role_id)).has('pos_manage')) {
+            return null;
+        }
+        const client = await this.dataSource.getRepository(Client).findOne({ where: { id: actor.id } });
+        return client?.pos_counter_id || null;
     }
 
     private openSessionOn(counterId: number) {
@@ -136,7 +152,7 @@ export class PosService {
         return counter;
     }
 
-    async counterView(counter: PosCounter) {
+    async counterView(counter: PosCounter, assigned: Client[] = []) {
         const session = await this.openSessionOn(counter.id);
         const [today] = await this.dataSource.query(
             `SELECT COUNT(*) AS bills, COALESCE(SUM(s.total_amount), 0) AS sales
@@ -156,15 +172,17 @@ export class PosService {
                 cashier: session.cashier ? { id: session.cashier.id, full_name: session.cashier.full_name } : null,
             };
         }
+        const cashier = assigned.find((client) => client.pos_counter_id === counter.id);
         return {
             ...counter,
+            assigned_to: cashier ? { id: cashier.id, full_name: cashier.full_name } : null,
             status: session ? RegisterSessionStatus.OPEN : RegisterSessionStatus.CLOSED,
             session: current,
             today: { bills: Number(today.bills), sales: roundAmount(parseFloat(today.sales)) },
         };
     }
 
-    async counters(actor: AuthActor, clientstoreId: number, activeOnly: boolean, search = '') {
+    async counters(actor: AuthActor, clientstoreId: number, activeOnly: boolean, search = '', ownOnly = false) {
         const store = await this.resolveStore(actor, clientstoreId);
         await this.ensureCounters(store.vendor_id, store.id);
         const query = this.counterRepository.createQueryBuilder('counter')
@@ -176,7 +194,17 @@ export class PosService {
         if (search) {
             query.andWhere('(counter.name LIKE :search OR counter.description LIKE :search)', { search: `%${search}%` });
         }
-        return Promise.all((await query.getMany()).map((counter) => this.counterView(counter)));
+        if (ownOnly) {
+            const own = await this.ownCounterId(actor);
+            if (own !== null) {
+                query.andWhere('counter.id = :own', { own });
+            }
+        }
+        const rows = await query.getMany();
+        const assigned = rows.length
+            ? await this.dataSource.getRepository(Client).find({ where: { pos_counter_id: In(rows.map((counter) => counter.id)) } })
+            : [];
+        return Promise.all(rows.map((counter) => this.counterView(counter, assigned)));
     }
 
     async createCounter(actor: AuthActor, body: CounterDto) {
@@ -209,6 +237,10 @@ export class PosService {
         if (await this.openSessionOn(counter.id)) {
             throw new BadRequestException('Close this counter before deleting it');
         }
+        const cashier = await this.dataSource.getRepository(Client).findOne({ where: { pos_counter_id: counter.id } });
+        if (cashier) {
+            throw new BadRequestException(`${counter.name} belongs to ${cashier.full_name}. Remove or change that cashier first.`);
+        }
         if (await this.sessionRepository.count({ where: { counter: { id: counter.id } } })) {
             await this.counterRepository.update(counter.id, { is_active: false });
             return { deactivated: true, message: `${counter.name} has old sessions, so it was made inactive instead of deleted.` };
@@ -230,6 +262,10 @@ export class PosService {
         }
         if (!counter.is_active) {
             throw new BadRequestException(`${counter.name} is inactive`);
+        }
+        const own = await this.ownCounterId(actor);
+        if (own !== null && own !== counter.id) {
+            throw new ForbiddenException('You can only open your own counter');
         }
         const existing = await this.currentSession(actor);
         if (existing) {

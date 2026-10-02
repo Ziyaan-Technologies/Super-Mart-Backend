@@ -6,7 +6,7 @@ export class StockListDto extends VendorScopedListDto {
     clientstore_id?: number;
     category_id?: number;
     brand_id?: number;
-    stock_status?: 'in' | 'low' | 'out';
+    stock_status?: 'in' | 'low' | 'out' | 'refill';
 }
 
 export class StockMovementListDto extends VendorScopedListDto {

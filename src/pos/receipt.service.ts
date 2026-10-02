@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Response } from 'express';
 import * as moment from 'moment-timezone';
+import { existsSync } from 'fs';
+import { join } from 'path';
 
 const WIDTH = 216;
 const MARGIN = 10;
+const LOGO_WIDTH = 100;
 
 @Injectable()
 export class ReceiptService {
@@ -13,6 +16,32 @@ export class ReceiptService {
 
     private quantity(value: number) {
         return Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 3 });
+    }
+
+    // Logos are uploaded to this server, so read them from disk instead of over HTTP.
+    private logoPath(logoUrl?: string | null): string | null {
+        const marker = '/uploads/';
+        const index = logoUrl?.indexOf(marker) ?? -1;
+        if (index < 0) {
+            return null;
+        }
+        const path = join(process.cwd(), 'uploads', decodeURIComponent(logoUrl.slice(index + marker.length).split('?')[0]));
+        return existsSync(path) ? path : null;
+    }
+
+    private drawLogo(doc: any, path: string | null): boolean {
+        if (!path) {
+            return false;
+        }
+        try {
+            const image = doc.openImage(path);
+            const height = image.height * (LOGO_WIDTH / image.width);
+            doc.image(image, (WIDTH - LOGO_WIDTH) / 2, doc.y, { width: LOGO_WIDTH });
+            doc.y += height + 4;
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     private draw(doc: any, sale: any) {
@@ -33,9 +62,12 @@ export class ReceiptService {
             doc.y = Math.max(leftBottom, doc.y);
         };
 
-        doc.font('Helvetica-Bold').fontSize(12).text(sale.vendor?.business_name || '', MARGIN, doc.y, { width: inner, align: 'center' });
+        // The logo already carries the business name, so the name is only printed without one.
+        if (!this.drawLogo(doc, this.logoPath(sale.vendor?.logo_url))) {
+            doc.font('Helvetica-Bold').fontSize(12).text(sale.vendor?.business_name || '', MARGIN, doc.y, { width: inner, align: 'center' });
+        }
         doc.font('Helvetica').fontSize(8);
-        doc.text(sale.clientstore?.store_name || '', { width: inner, align: 'center' });
+        doc.text(sale.clientstore?.store_name || '', MARGIN, doc.y, { width: inner, align: 'center' });
         if (sale.clientstore?.address) doc.text(sale.clientstore.address, { width: inner, align: 'center' });
         if (sale.clientstore?.store_phone) doc.text(`Tel: ${sale.clientstore.store_phone}`, { width: inner, align: 'center' });
         if (sale.vendor?.tax_number) doc.text(`Tax No: ${sale.vendor.tax_number}`, { width: inner, align: 'center' });
@@ -94,6 +126,10 @@ export class ReceiptService {
             doc.moveDown(0.3);
             doc.fontSize(7).text(`Reprint #${sale.print_count}`, { width: inner, align: 'center' });
         }
+        line();
+        doc.font('Helvetica').fontSize(6.5);
+        doc.text('Software Developed by Ziyaan Technologies.', MARGIN, doc.y, { width: inner, align: 'center' });
+        doc.text('Contact: 03172532083', { width: inner, align: 'center' });
     }
 
     render(res: Response, sale: any) {

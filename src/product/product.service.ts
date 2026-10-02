@@ -186,6 +186,27 @@ export class ProductService extends VendorScopedService {
         return { message: 'Success', deactivated: false };
     }
 
+    private ean13(body: string) {
+        const sum = body.split('').reduce((total, digit, index) => total + Number(digit) * (index % 2 ? 3 : 1), 0);
+        return `${body}${(10 - (sum % 10)) % 10}`;
+    }
+
+    // In-store EAN-13 codes use prefix 19 (unassigned by GS1), so they never clash with
+    // manufacturer barcodes or with scale labels, which the POS reads as codes starting with 2.
+    async assignMissingBarcodes(product: Product) {
+        if (product.is_weighted) {
+            return;
+        }
+        const variants = await this.variantRepository.find({ where: { product: { id: product.id }, is_active: true } });
+        for (const variant of variants.filter((item) => !item.barcode)) {
+            let barcode = this.ean13(`19${String(variant.id).padStart(10, '0')}`);
+            while (await this.variantRepository.exists({ where: { vendor: { id: product.vendor_id }, barcode }, withDeleted: true })) {
+                barcode = this.ean13(`19${String(Math.floor(Math.random() * 1e10)).padStart(10, '0')}`);
+            }
+            await this.variantRepository.update(variant.id, { barcode });
+        }
+    }
+
     private filteredQuery(vendorId: number | undefined, body: ProductListDto, categoryIds: number[] | null) {
         const query = this.productRepository
             .createQueryBuilder('product')
@@ -267,7 +288,6 @@ export class ProductService extends VendorScopedService {
                 'variant.unit_quantity AS unit_quantity',
                 'variant.cost_price AS cost_price',
                 'variant.sale_price AS sale_price',
-                'variant.mrp AS mrp',
                 'variant.reorder_level AS reorder_level',
                 'product.id AS product_id',
                 'product.name AS product_name',
@@ -305,7 +325,7 @@ export class ProductService extends VendorScopedService {
             }));
         }
         const rows = await query.orderBy('product.name', 'ASC').addOrderBy('variant.name', 'ASC').offset(options.offset || 0).limit(limit).getRawMany();
-        const numeric = ['unit_quantity', 'cost_price', 'sale_price', 'mrp', 'reorder_level', 'tax_rate', 'stock_quantity', 'average_cost'];
+        const numeric = ['unit_quantity', 'cost_price', 'sale_price', 'reorder_level', 'tax_rate', 'stock_quantity', 'average_cost'];
         const flags = ['is_weighted', 'track_expiry', 'price_includes_tax', 'allow_decimal'];
         return rows.map((row) => {
             numeric.forEach((key) => {
