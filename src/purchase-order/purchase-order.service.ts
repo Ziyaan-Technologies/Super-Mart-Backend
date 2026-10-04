@@ -39,6 +39,7 @@ export class PurchaseOrderService extends AbstractService {
 
     private async validate(actor: AuthActor, vendorId: number, clientstoreId: number, supplierId: number, items: PurchaseOrderItemDto[]) {
         await this.clientstoreService.accessible(actor, clientstoreId);
+        await this.clientstoreService.assertPurchaseStore(vendorId, clientstoreId);
         const supplier = await this.supplierService.assertOwnedByVendor(supplierId, vendorId);
         if (!supplier.is_active) {
             throw new BadRequestException('The selected supplier is inactive');
@@ -99,6 +100,7 @@ export class PurchaseOrderService extends AbstractService {
             await this.validate(actor, order.vendor_id, clientstoreId, supplierId, body.items);
         } else if (body.clientstore_id || body.supplier_id) {
             await this.clientstoreService.accessible(actor, clientstoreId);
+            await this.clientstoreService.assertPurchaseStore(order.vendor_id, clientstoreId);
             await this.supplierService.assertOwnedByVendor(supplierId, order.vendor_id);
         }
         await this.dataSource.transaction(async (manager) => {

@@ -99,6 +99,14 @@ export class StockTransferController {
         return this.get(actor, transfer.id);
     }
 
+    @HasPermission('stock_transfers_dispatch')
+    @Put(':id/complete')
+    async complete(@Actor() actor: AuthActor, @Param('id') id: number) {
+        const transfer = await this.stockTransferService.accessible(actor, id);
+        await this.stockTransferService.complete(actor, transfer.id);
+        return this.get(actor, transfer.id);
+    }
+
     @HasPermission('stock_transfers_receive')
     @Put(':id/receive')
     async receive(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: StockTransferReceiveDto) {

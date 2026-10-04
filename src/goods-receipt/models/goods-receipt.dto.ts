@@ -49,8 +49,9 @@ export class GoodsReceiptCreateDto {
     @IsInt()
     clientstore_id: number;
 
+    @IsOptional()
     @IsInt()
-    supplier_id: number;
+    supplier_id: number | null;
 
     @IsOptional()
     @IsInt()

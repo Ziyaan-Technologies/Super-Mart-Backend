@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { VendorScopedListDto } from 'src/common/list-query';
 import { PaymentMethod } from './sale-payment.entity';
 
@@ -7,18 +7,34 @@ export class OpenRegisterDto {
     @IsInt()
     clientstore_id: number;
 
+    @IsInt()
+    counter_id: number;
+
+    @Type(() => Number)
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    opening_cash: number;
+
     @IsOptional()
     @IsString()
     note: string;
 }
 
-export class OpeningCashDto {
+export class CounterDto {
     @IsInt()
     clientstore_id: number;
 
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    opening_cash: number;
+    @IsNotEmpty()
+    @IsString()
+    name: string;
+
+    @IsOptional()
+    @IsString()
+    description: string;
+
+    @IsOptional()
+    @IsBoolean()
+    is_active: boolean;
 }
 
 export class CloseRegisterDto {
@@ -133,4 +149,5 @@ export class SaleListDto extends VendorScopedListDto {
 export class RegisterListDto extends VendorScopedListDto {
     clientstore_id?: number;
     cashier_id?: number;
+    counter_id?: number;
 }

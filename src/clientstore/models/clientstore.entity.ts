@@ -16,6 +16,13 @@ import { City } from "src/city/models/city.entity";
 import { Area } from "src/area/models/area.entity";
 import { DecimalTransformer } from "src/common/decimal.transformer";
 
+// A vendor's locations: the Mart sells, the Warehouse (Godam) only holds stock.
+// Stores saved before this existed have no type and count as a Mart.
+export enum StoreType {
+  MART = 'Mart',
+  WAREHOUSE = 'Warehouse',
+}
+
 @Entity('client_stores')
 @Unique('UQ_client_stores_vendor_code', ['vendor', 'store_code'])
 export class Clientstore {

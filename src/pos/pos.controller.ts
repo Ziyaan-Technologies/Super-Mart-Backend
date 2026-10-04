@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, NotFoundException, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Post, Put, Query, Res } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { Response } from 'express';
 import { DataSource, Repository } from 'typeorm';
@@ -11,13 +11,14 @@ import { roundAmount } from 'src/common/decimal.transformer';
 import { ExportService } from 'src/common/export.service';
 import { HasPermission } from 'src/permission/has-permission.decorator';
 import { RoleService } from 'src/role/role.service';
+import { ClientType } from 'src/client/models/client.entity';
 import { CategoryService } from 'src/category/category.service';
 import { ProductService } from 'src/product/product.service';
 import { PosService } from './pos.service';
 import { ReceiptService } from './receipt.service';
 import { RegisterSession } from './models/register-session.entity';
 import { Sale } from './models/sale.entity';
-import { CloseRegisterDto, OpeningCashDto, OpenRegisterDto, RegisterListDto, SaleCreateDto, SaleListDto, SaleReturnDto } from './models/pos.dto';
+import { CloseRegisterDto, CounterDto, OpenRegisterDto, RegisterListDto, SaleCreateDto, SaleListDto, SaleReturnDto } from './models/pos.dto';
 
 @ActorTypes(ActorType.CLIENT)
 @Controller('pos')
@@ -43,14 +44,13 @@ export class PosController {
     async currentRegister(@Actor() actor: AuthActor, @Query('clientstore_id') clientstoreId?: number) {
         const store = await this.posService.resolveStore(actor, clientstoreId);
         const session = await this.posService.currentSession(actor);
-        const drawerCash = store.drawer_cash;
         if (!session) {
-            return { session: null, drawer_cash: drawerCash };
+            return { session: null };
         }
         if (session.clientstore_id !== store.id) {
-            return { session: null, drawer_cash: drawerCash, open_elsewhere: session.clientstore?.store_name };
+            return { session: null, open_elsewhere: `${session.counter?.name || 'a counter'} at ${session.clientstore?.store_name}` };
         }
-        return { session: await this.posService.sessionSummary(actor, session.id, false), drawer_cash: drawerCash };
+        return { session: await this.posService.sessionSummary(actor, session.id, false) };
     }
 
     @HasPermission('pos_sell')
@@ -59,16 +59,56 @@ export class PosController {
         return this.posService.openSession(actor, body);
     }
 
+    // Counters the cashier can pick from on the Sale Counter screen.
     @HasPermission('pos_sell', 'pos_manage')
-    @Post('registers/opening-cash')
-    async openingCash(@Actor() actor: AuthActor, @Body() body: OpeningCashDto) {
-        return this.posService.setOpeningCash(actor, body);
+    @Get('counters/list')
+    async counterDropdown(@Actor() actor: AuthActor, @Query('clientstore_id') clientstoreId: number) {
+        return this.posService.counters(actor, clientstoreId, true, '', true);
+    }
+
+    @HasPermission('pos_manage')
+    @Post('counters/v1/list')
+    async counterList(@Actor() actor: AuthActor, @Body() body: RegisterListDto) {
+        const rows = await this.posService.counters(actor, body.clientstore_id, false, body.search);
+        const take = Number(body.take) || 10;
+        const page = Number(body.page) || 1;
+        return { data: rows.slice((page - 1) * take, page * take), meta: { total: rows.length, page, last_page: Math.ceil(rows.length / take) } };
+    }
+
+    @HasPermission('pos_manage')
+    @Post('counters')
+    async createCounter(@Actor() actor: AuthActor, @Body() body: CounterDto) {
+        return this.posService.createCounter(actor, body);
+    }
+
+    @HasPermission('pos_manage')
+    @Put('counters/:id')
+    async updateCounter(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: Partial<CounterDto>) {
+        return this.posService.updateCounter(actor, Number(id), body);
+    }
+
+    @HasPermission('pos_manage')
+    @Delete('counters/:id')
+    async removeCounter(@Actor() actor: AuthActor, @Param('id') id: number) {
+        return this.posService.removeCounter(actor, Number(id));
+    }
+
+    // Opening and closing cash of every session on a counter. Only the owner sees this.
+    @HasPermission('pos_manage')
+    @Post('counters/:id/history')
+    async counterHistory(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: RegisterListDto) {
+        if (actor.client_type !== ClientType.OWNER) {
+            throw new ForbiddenException('Only the owner can see counter history');
+        }
+        const counter = await this.posService.counter(actor, Number(id));
+        return this.registers(actor, { ...body, clientstore_id: counter.clientstore_id, counter_id: counter.id });
     }
 
     private registerQuery(actor: AuthActor, body: RegisterListDto, canManage: boolean) {
         const query = this.sessionRepository
             .createQueryBuilder('register_session')
             .leftJoinAndSelect('register_session.clientstore', 'clientstore')
+            .leftJoinAndSelect('register_session.counter', 'counter')
             .leftJoin('register_session.cashier', 'cashier')
             .addSelect(['cashier.id', 'cashier.full_name']);
         applyDocumentFilters(query, 'register_session', actor, {
@@ -81,9 +121,12 @@ export class PosController {
         }, {
             storeColumns: ['clientstore_id'],
             dateColumn: 'opened_at',
-            searchColumns: ['register_session.session_number', 'cashier.full_name'],
+            searchColumns: ['register_session.session_number', 'cashier.full_name', 'counter.name'],
             timestampDate: true,
         });
+        if (body.counter_id) {
+            query.andWhere('register_session.counter_id = :counterId', { counterId: body.counter_id });
+        }
         const cashierId = canManage ? body.cashier_id : actor.id;
         if (cashierId) {
             query.andWhere('register_session.cashier_id = :cashierId', { cashierId });

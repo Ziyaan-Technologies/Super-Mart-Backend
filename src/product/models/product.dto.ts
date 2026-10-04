@@ -33,15 +33,16 @@ export class ProductVariantDto {
     @Min(0)
     sale_price: number;
 
-    @IsOptional()
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    mrp: number;
 
     @IsOptional()
     @IsNumber({ maxDecimalPlaces: 3 })
     @Min(0)
     reorder_level: number;
+
+    @IsOptional()
+    @IsNumber({ maxDecimalPlaces: 3 })
+    @Min(0)
+    mart_min_level: number;
 
     @IsOptional()
     @IsBoolean()

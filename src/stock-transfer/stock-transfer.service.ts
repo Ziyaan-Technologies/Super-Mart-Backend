@@ -124,38 +124,48 @@ export class StockTransferService extends AbstractService {
     }
 
     async dispatch(actor: AuthActor, transferId: number) {
+        await this.dataSource.transaction((manager) => this.dispatchIn(manager, actor, transferId));
+    }
+
+    // One step: stock leaves the source and lands in the destination in the same transaction.
+    async complete(actor: AuthActor, transferId: number) {
         await this.dataSource.transaction(async (manager) => {
-            const transfer = await this.lock(manager, transferId, StockTransferStatus.DRAFT, 'Only draft transfers can be dispatched');
-            this.assertStoreRole(actor, transfer.from_clientstore_id, 'source');
-            const items = await manager.find(StockTransferItem, { where: { stock_transfer: { id: transfer.id } } });
-            const variants = await this.productService.variantsForVendor(transfer.vendor_id, items.map((item) => item.product_variant_id));
-            const allowNegative = await this.stockService.allowNegativeStock(manager, transfer.vendor_id);
-            let totalValue = 0;
-            for (const item of items) {
-                const variant = variants.get(item.product_variant_id);
-                const result = await this.stockService.applyMovement(manager, {
-                    vendorId: transfer.vendor_id,
-                    clientstoreId: transfer.from_clientstore_id,
-                    variantId: item.product_variant_id,
-                    type: StockMovementType.TRANSFER_OUT,
-                    quantity: item.quantity,
-                    allowNegative,
-                    label: `${variant.product.name} (${variant.name})`,
-                    reference: { type: 'stock_transfer', id: transfer.id, number: transfer.transfer_number },
-                    createdById: actor.id,
-                });
-                totalValue += item.quantity * result.unitCost;
-                await manager.update(StockTransferItem, item.id, {
-                    unit_cost: result.unitCost,
-                    batch_allocations: result.allocations,
-                });
-            }
-            await manager.update(StockTransfer, transfer.id, {
-                status: StockTransferStatus.DISPATCHED,
-                total_value: roundAmount(totalValue),
-                dispatched_by: { id: actor.id },
-                dispatched_at: new Date(),
+            await this.dispatchIn(manager, actor, transferId);
+            await this.receiveIn(manager, actor, transferId, {} as StockTransferReceiveDto, false);
+        });
+    }
+
+    private async dispatchIn(manager: EntityManager, actor: AuthActor, transferId: number) {
+        const transfer = await this.lock(manager, transferId, StockTransferStatus.DRAFT, 'Only draft transfers can be dispatched');
+        this.assertStoreRole(actor, transfer.from_clientstore_id, 'source');
+        const items = await manager.find(StockTransferItem, { where: { stock_transfer: { id: transfer.id } } });
+        const variants = await this.productService.variantsForVendor(transfer.vendor_id, items.map((item) => item.product_variant_id));
+        const allowNegative = await this.stockService.allowNegativeStock(manager, transfer.vendor_id);
+        let totalValue = 0;
+        for (const item of items) {
+            const variant = variants.get(item.product_variant_id);
+            const result = await this.stockService.applyMovement(manager, {
+                vendorId: transfer.vendor_id,
+                clientstoreId: transfer.from_clientstore_id,
+                variantId: item.product_variant_id,
+                type: StockMovementType.TRANSFER_OUT,
+                quantity: item.quantity,
+                allowNegative,
+                label: `${variant.product.name} (${variant.name})`,
+                reference: { type: 'stock_transfer', id: transfer.id, number: transfer.transfer_number },
+                createdById: actor.id,
             });
+            totalValue += item.quantity * result.unitCost;
+            await manager.update(StockTransferItem, item.id, {
+                unit_cost: result.unitCost,
+                batch_allocations: result.allocations,
+            });
+        }
+        await manager.update(StockTransfer, transfer.id, {
+            status: StockTransferStatus.DISPATCHED,
+            total_value: roundAmount(totalValue),
+            dispatched_by: { id: actor.id },
+            dispatched_at: new Date(),
         });
     }
 
@@ -174,47 +184,51 @@ export class StockTransferService extends AbstractService {
     }
 
     async receive(actor: AuthActor, transferId: number, body: StockTransferReceiveDto) {
-        await this.dataSource.transaction(async (manager) => {
-            const transfer = await this.lock(manager, transferId, StockTransferStatus.DISPATCHED, 'Only dispatched transfers can be received');
+        await this.dataSource.transaction((manager) => this.receiveIn(manager, actor, transferId, body, true));
+    }
+
+    private async receiveIn(manager: EntityManager, actor: AuthActor, transferId: number, body: StockTransferReceiveDto, checkRole: boolean) {
+        const transfer = await this.lock(manager, transferId, StockTransferStatus.DISPATCHED, 'Only dispatched transfers can be received');
+        if (checkRole) {
             this.assertStoreRole(actor, transfer.to_clientstore_id, 'destination');
-            const items = await manager.find(StockTransferItem, { where: { stock_transfer: { id: transfer.id } } });
-            const variants = await this.productService.variantsForVendor(transfer.vendor_id, items.map((item) => item.product_variant_id));
-            const shortages: string[] = [];
-            for (const item of items) {
-                const override = body.items?.find((row) => row.id === item.id);
-                const received = roundQuantity(override ? override.received_quantity : item.quantity);
-                const variant = variants.get(item.product_variant_id);
-                if (received > item.quantity) {
-                    throw new BadRequestException(`${variant.product.name}: received quantity cannot be more than dispatched (${item.quantity})`);
-                }
-                if (received > 0) {
-                    await this.stockService.applyMovement(manager, {
-                        vendorId: transfer.vendor_id,
-                        clientstoreId: transfer.to_clientstore_id,
-                        variantId: item.product_variant_id,
-                        type: StockMovementType.TRANSFER_IN,
-                        quantity: received,
-                        unitCost: item.unit_cost,
-                        batches: this.receivedBatches(item.batch_allocations, received),
-                        trackExpiry: variant.product.track_expiry,
-                        allowNegative: true,
-                        label: `${variant.product.name} (${variant.name})`,
-                        reference: { type: 'stock_transfer', id: transfer.id, number: transfer.transfer_number },
-                        createdById: actor.id,
-                    });
-                }
-                if (received < item.quantity) {
-                    shortages.push(`${variant.product.name} (${variant.name}): short by ${roundQuantity(item.quantity - received)}`);
-                }
-                await manager.update(StockTransferItem, item.id, { received_quantity: received });
+        }
+        const items = await manager.find(StockTransferItem, { where: { stock_transfer: { id: transfer.id } } });
+        const variants = await this.productService.variantsForVendor(transfer.vendor_id, items.map((item) => item.product_variant_id));
+        const shortages: string[] = [];
+        for (const item of items) {
+            const override = body.items?.find((row) => row.id === item.id);
+            const received = roundQuantity(override ? override.received_quantity : item.quantity);
+            const variant = variants.get(item.product_variant_id);
+            if (received > item.quantity) {
+                throw new BadRequestException(`${variant.product.name}: received quantity cannot be more than dispatched (${item.quantity})`);
             }
-            const notes = [body.receive_note, ...shortages].filter(Boolean).join('\n');
-            await manager.update(StockTransfer, transfer.id, {
-                status: StockTransferStatus.RECEIVED,
-                receive_note: notes || null,
-                received_by: { id: actor.id },
-                received_at: new Date(),
-            });
+            if (received > 0) {
+                await this.stockService.applyMovement(manager, {
+                    vendorId: transfer.vendor_id,
+                    clientstoreId: transfer.to_clientstore_id,
+                    variantId: item.product_variant_id,
+                    type: StockMovementType.TRANSFER_IN,
+                    quantity: received,
+                    unitCost: item.unit_cost,
+                    batches: this.receivedBatches(item.batch_allocations, received),
+                    trackExpiry: variant.product.track_expiry,
+                    allowNegative: true,
+                    label: `${variant.product.name} (${variant.name})`,
+                    reference: { type: 'stock_transfer', id: transfer.id, number: transfer.transfer_number },
+                    createdById: actor.id,
+                });
+            }
+            if (received < item.quantity) {
+                shortages.push(`${variant.product.name} (${variant.name}): short by ${roundQuantity(item.quantity - received)}`);
+            }
+            await manager.update(StockTransferItem, item.id, { received_quantity: received });
+        }
+        const notes = [body.receive_note, ...shortages].filter(Boolean).join('\n');
+        await manager.update(StockTransfer, transfer.id, {
+            status: StockTransferStatus.RECEIVED,
+            receive_note: notes || null,
+            received_by: { id: actor.id },
+            received_at: new Date(),
         });
     }
 
