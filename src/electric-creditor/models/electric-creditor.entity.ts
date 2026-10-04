@@ -37,6 +37,9 @@ export class ElectricCreditor {
   @Column({ type: 'decimal', precision: 20, scale: 2, default: 0, transformer: DecimalTransformer })
   opening_balance: number;
 
+  @Column({ type: 'decimal', precision: 20, scale: 2, default: 0, transformer: DecimalTransformer })
+  incentive: number;
+
   @Column({ type: 'text', nullable: true })
   note: string;
 
