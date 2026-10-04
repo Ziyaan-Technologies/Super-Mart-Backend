@@ -11,7 +11,8 @@ import { ElectricPaymentMethod } from 'src/electric-sale/models/electric-sale.en
 import { ElectricCreditor } from './models/electric-creditor.entity';
 import { ElectricCreditorEntry, ElectricCreditorEntryType } from './models/electric-creditor-entry.entity';
 import { ElectricCreditorPayment } from './models/electric-creditor-payment.entity';
-import { ElectricCreditorDto, ElectricCreditorEntryDto, ElectricCreditorPaymentDto, ElectricCreditorUpdateDto } from './models/electric-creditor.dto';
+import { ElectricCreditorIncentive } from './models/electric-creditor-incentive.entity';
+import { ElectricCreditorDto, ElectricCreditorEntryDto, ElectricCreditorIncentiveDto, ElectricCreditorPaymentDto, ElectricCreditorUpdateDto } from './models/electric-creditor.dto';
 
 
 @Injectable()
@@ -21,15 +22,16 @@ export class ElectricCreditorService {
         @InjectRepository(ElectricCreditor, 'MainConnection') private readonly creditorRepository: Repository<ElectricCreditor>,
         @InjectRepository(ElectricCreditorEntry, 'MainConnection') private readonly entryRepository: Repository<ElectricCreditorEntry>,
         @InjectRepository(ElectricCreditorPayment, 'MainConnection') private readonly paymentRepository: Repository<ElectricCreditorPayment>,
+        @InjectRepository(ElectricCreditorIncentive, 'MainConnection') private readonly incentiveRepository: Repository<ElectricCreditorIncentive>,
         @InjectDataSource('MainConnection') private readonly dataSource: DataSource,
     ) { }
 
     private async balances(vendorId: number, ids: number[]) {
-        const map = new Map<number, { taken: number; paid: number; entries: number; last_payment: Date | null }>();
+        const map = new Map<number, { taken: number; paid: number; entries: number; added_incentive: number; last_payment: Date | null }>();
         if (!ids.length) {
             return map;
         }
-        const [taken, paid] = await Promise.all([
+        const [taken, paid, incentives] = await Promise.all([
             this.creditorRepository.query(
                 `SELECT creditor_id, COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS entries
                  FROM electric_creditor_entries WHERE vendor_id = ? AND creditor_id IN (?) GROUP BY creditor_id`,
@@ -40,13 +42,20 @@ export class ElectricCreditorService {
                  FROM electric_creditor_payments WHERE vendor_id = ? AND creditor_id IN (?) GROUP BY creditor_id`,
                 [vendorId, ids],
             ),
+            this.creditorRepository.query(
+                `SELECT creditor_id, COALESCE(SUM(amount), 0) AS amount
+                 FROM electric_creditor_incentives WHERE vendor_id = ? AND creditor_id IN (?) GROUP BY creditor_id`,
+                [vendorId, ids],
+            ),
         ]);
         ids.forEach((id) => {
             const takenRow = taken.find((row: any) => Number(row.creditor_id) === id);
             const paidRow = paid.find((row: any) => Number(row.creditor_id) === id);
+            const incentiveRow = incentives.find((row: any) => Number(row.creditor_id) === id);
             map.set(id, {
                 taken: roundAmount(parseFloat(takenRow?.amount || 0)),
                 paid: roundAmount(parseFloat(paidRow?.amount || 0)),
+                added_incentive: roundAmount(parseFloat(incentiveRow?.amount || 0)),
                 entries: Number(takenRow?.entries || 0),
                 last_payment: paidRow?.last_payment || null,
             });
@@ -54,7 +63,7 @@ export class ElectricCreditorService {
         return map;
     }
 
-    private view(creditor: ElectricCreditor, totals?: { taken: number; paid: number; entries: number; last_payment: Date | null }) {
+    private view(creditor: ElectricCreditor, totals?: { taken: number; paid: number; entries: number; added_incentive: number; last_payment: Date | null }) {
         const balance = roundAmount(creditor.opening_balance + (totals?.taken || 0) - (totals?.paid || 0));
         return {
             id: creditor.id,
@@ -64,6 +73,8 @@ export class ElectricCreditorService {
             address: creditor.address,
             image_url: creditor.image_url,
             opening_balance: creditor.opening_balance,
+            opening_incentive: creditor.incentive,
+            incentive: roundAmount(creditor.incentive + (totals?.added_incentive || 0)),
             note: creditor.note,
             is_active: creditor.is_active,
             created_at: creditor.created_at,
@@ -121,6 +132,7 @@ export class ElectricCreditorService {
             creditors: views.length,
             owing: views.filter((row) => row.balance > 0).length,
             totalOwed: roundAmount(views.reduce((sum, row) => sum + row.owed, 0)),
+            totalIncentive: roundAmount(views.reduce((sum, row) => sum + row.incentive, 0)),
         };
     }
 
@@ -141,7 +153,7 @@ export class ElectricCreditorService {
     async detail(actor: AuthActor, id: any) {
         const creditor = await this.own(actor, id);
         const totals = await this.balances(actor.vendor_id, [creditor.id]);
-        const [entries, payments] = await Promise.all([
+        const [entries, payments, incentives] = await Promise.all([
             this.entryRepository.find({
                 where: { creditor: { id: creditor.id } },
                 relations: ['clientstore', 'created_by_client'],
@@ -150,6 +162,11 @@ export class ElectricCreditorService {
             this.paymentRepository.find({
                 where: { creditor: { id: creditor.id } },
                 relations: ['clientstore', 'counter', 'paid_by_client'],
+                order: { id: 'DESC' },
+            }),
+            this.incentiveRepository.find({
+                where: { creditor: { id: creditor.id } },
+                relations: ['clientstore', 'created_by_client'],
                 order: { id: 'DESC' },
             }),
         ]);
@@ -163,6 +180,14 @@ export class ElectricCreditorService {
                 shop: entry.clientstore?.store_name,
                 added_by: brief(entry.created_by_client),
                 created_at: entry.created_at,
+            })),
+            incentives: incentives.map((incentive) => ({
+                id: incentive.id,
+                amount: incentive.amount,
+                note: incentive.note,
+                shop: incentive.clientstore?.store_name,
+                added_by: brief(incentive.created_by_client),
+                created_at: incentive.created_at,
             })),
             payments: payments.map((payment) => ({
                 id: payment.id,
@@ -187,6 +212,7 @@ export class ElectricCreditorService {
             address: body.address?.trim() || null,
             image_url: body.image_url?.trim() || null,
             opening_balance: roundAmount(Number(body.opening_balance) || 0),
+            incentive: roundAmount(Number(body.incentive) || 0),
             note: body.note?.trim() || null,
             is_active: body.is_active ?? true,
         });
@@ -201,6 +227,7 @@ export class ElectricCreditorService {
             address: body.address?.trim() ?? creditor.address,
             image_url: body.image_url === undefined ? creditor.image_url : (body.image_url?.trim() || null),
             opening_balance: body.opening_balance === undefined ? creditor.opening_balance : roundAmount(Number(body.opening_balance) || 0),
+            incentive: body.incentive === undefined ? creditor.incentive : roundAmount(Number(body.incentive) || 0),
             note: body.note?.trim() ?? creditor.note,
             is_active: body.is_active ?? creditor.is_active,
         });
@@ -234,6 +261,25 @@ export class ElectricCreditorService {
             type: ElectricCreditorEntryType.MANUAL,
             amount,
             note: body.note.trim(),
+            created_by_client: { id: actor.id },
+        });
+        return this.detail(actor, creditor.id);
+    }
+
+    /** incentive he promises for hitting a target — money on paper, so it touches nothing else */
+    async addIncentive(actor: AuthActor, id: any, body: ElectricCreditorIncentiveDto) {
+        const creditor = await this.own(actor, id);
+        const amount = roundAmount(Number(body.amount) || 0);
+        if (amount <= 0) {
+            throw new BadRequestException('Enter the incentive amount');
+        }
+        const shop = body.clientstore_id ? await this.access.shop(actor, body.clientstore_id) : null;
+        await this.incentiveRepository.save({
+            creditor: { id: creditor.id },
+            vendor: { id: actor.vendor_id },
+            clientstore: shop ? { id: shop.id } : null,
+            amount,
+            note: body.note?.trim() || null,
             created_by_client: { id: actor.id },
         });
         return this.detail(actor, creditor.id);

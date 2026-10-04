@@ -6,10 +6,11 @@ import { ElectricCreditorService } from './electric-creditor.service';
 import { ElectricCreditor } from './models/electric-creditor.entity';
 import { ElectricCreditorEntry } from './models/electric-creditor-entry.entity';
 import { ElectricCreditorPayment } from './models/electric-creditor-payment.entity';
+import { ElectricCreditorIncentive } from './models/electric-creditor-incentive.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ElectricCreditor, ElectricCreditorEntry, ElectricCreditorPayment], 'MainConnection'),
+    TypeOrmModule.forFeature([ElectricCreditor, ElectricCreditorEntry, ElectricCreditorPayment, ElectricCreditorIncentive], 'MainConnection'),
     ElectricAccessModule,
   ],
   controllers: [ElectricCreditorController],

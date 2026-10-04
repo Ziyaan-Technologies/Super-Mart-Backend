@@ -27,6 +27,10 @@ export class ElectricCreditorDto {
     opening_balance: number;
 
     @IsOptional()
+    @IsNumber()
+    incentive: number;
+
+    @IsOptional()
     @IsString()
     note: string;
 
@@ -52,6 +56,19 @@ export class ElectricCreditorPaymentDto {
     @IsOptional()
     @IsString()
     method: string;
+
+    @IsOptional()
+    @IsString()
+    note: string;
+}
+
+export class ElectricCreditorIncentiveDto {
+    @IsNumber()
+    amount: number;
+
+    @IsOptional()
+    @IsNumber()
+    clientstore_id: number;
 
     @IsOptional()
     @IsString()

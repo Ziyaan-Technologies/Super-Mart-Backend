@@ -5,7 +5,7 @@ import { ElectricApi } from 'src/common/electric-api.decorator';
 import { ElectricListDto } from 'src/common/electric.dto';
 import { HasPermission } from 'src/permission/has-permission.decorator';
 import { ElectricCreditorService } from './electric-creditor.service';
-import { ElectricCreditorDto, ElectricCreditorEntryDto, ElectricCreditorPaymentDto, ElectricCreditorUpdateDto } from './models/electric-creditor.dto';
+import { ElectricCreditorDto, ElectricCreditorEntryDto, ElectricCreditorIncentiveDto, ElectricCreditorPaymentDto, ElectricCreditorUpdateDto } from './models/electric-creditor.dto';
 
 @ElectricApi()
 @ActorTypes(ActorType.CLIENT)
@@ -59,6 +59,12 @@ export class ElectricCreditorController {
     @Post(':id/entries')
     addEntry(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: ElectricCreditorEntryDto) {
         return this.creditorService.addEntry(actor, id, body);
+    }
+
+    @HasPermission('creditors_edit')
+    @Post(':id/incentives')
+    addIncentive(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: ElectricCreditorIncentiveDto) {
+        return this.creditorService.addIncentive(actor, id, body);
     }
 
     @HasPermission('creditors_payment')
