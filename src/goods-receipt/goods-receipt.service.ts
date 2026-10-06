@@ -45,9 +45,12 @@ export class GoodsReceiptService extends AbstractService {
         return receipt;
     }
 
-    private async validate(actor: AuthActor, vendorId: number, header: { clientstore_id: number; supplier_id: number; purchase_order_id?: number | null }, items: GoodsReceiptItemDto[]) {
+    private async validate(actor: AuthActor, vendorId: number, header: { clientstore_id: number; supplier_id: number | null; purchase_order_id?: number | null }, items: GoodsReceiptItemDto[]) {
         await this.clientstoreService.accessible(actor, header.clientstore_id);
-        await this.supplierService.assertOwnedByVendor(header.supplier_id, vendorId);
+        await this.clientstoreService.assertPurchaseStore(vendorId, header.clientstore_id);
+        if (header.supplier_id) {
+            await this.supplierService.assertOwnedByVendor(header.supplier_id, vendorId);
+        }
         const variants = await this.productService.variantsForVendor(vendorId, items.map((item) => item.product_variant_id));
         if (header.purchase_order_id) {
             const order = await this.purchaseOrderService.findOne({ id: header.purchase_order_id }, ['items']) as PurchaseOrder;
@@ -112,7 +115,7 @@ export class GoodsReceiptService extends AbstractService {
             const receipt = await manager.save(GoodsReceipt, {
                 vendor: { id: vendorId },
                 clientstore: { id: body.clientstore_id },
-                supplier: { id: body.supplier_id },
+                supplier: body.supplier_id ? { id: body.supplier_id } : null,
                 purchase_order: body.purchase_order_id ? { id: body.purchase_order_id } : null,
                 received_date: body.received_date,
                 supplier_invoice_number: body.supplier_invoice_number || null,
@@ -132,19 +135,19 @@ export class GoodsReceiptService extends AbstractService {
         }
         const header = {
             clientstore_id: body.clientstore_id ?? receipt.clientstore_id,
-            supplier_id: body.supplier_id ?? receipt.supplier_id,
+            supplier_id: body.supplier_id !== undefined ? body.supplier_id : receipt.supplier_id,
             purchase_order_id: body.purchase_order_id !== undefined ? body.purchase_order_id : receipt.purchase_order_id,
         };
         if (body.items) {
             const variants = await this.validate(actor, receipt.vendor_id, header, body.items);
             this.assertExpiry(variants, body.items);
-        } else if (body.clientstore_id || body.supplier_id || body.purchase_order_id !== undefined) {
+        } else if (body.clientstore_id || body.supplier_id !== undefined || body.purchase_order_id !== undefined) {
             throw new BadRequestException('Send the lines again when changing the store, supplier or purchase order');
         }
         await this.dataSource.transaction(async (manager) => {
             const changes: any = {};
             if (body.clientstore_id) changes.clientstore = { id: body.clientstore_id };
-            if (body.supplier_id) changes.supplier = { id: body.supplier_id };
+            if (body.supplier_id !== undefined) changes.supplier = body.supplier_id ? { id: body.supplier_id } : null;
             if (body.purchase_order_id !== undefined) changes.purchase_order = body.purchase_order_id ? { id: body.purchase_order_id } : null;
             if (body.received_date) changes.received_date = body.received_date;
             if (body.supplier_invoice_number !== undefined) changes.supplier_invoice_number = body.supplier_invoice_number || null;
@@ -176,6 +179,7 @@ export class GoodsReceiptService extends AbstractService {
             if (!items.length) {
                 throw new BadRequestException('This goods receipt has no lines');
             }
+            await this.clientstoreService.assertPurchaseStore(receipt.vendor_id, receipt.clientstore_id);
             const variants = await this.productService.variantsForVendor(receipt.vendor_id, items.map((item) => item.product_variant_id));
             this.assertExpiry(variants, items);
 

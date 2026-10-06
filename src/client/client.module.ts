@@ -4,6 +4,7 @@ import { Role } from 'src/role/role.entity';
 import { RoleModule } from 'src/role/role.module';
 import { ClientController } from './client.controller';
 import { ClientService } from './client.service';
+import { CashierCounterService } from 'src/pos/cashier-counter.service';
 import { Client } from './models/client.entity';
 
 @Module({
@@ -12,7 +13,7 @@ import { Client } from './models/client.entity';
     RoleModule,
   ],
   controllers: [ClientController],
-  providers: [ClientService],
+  providers: [ClientService, CashierCounterService],
   exports: [ClientService]
 })
 export class ClientModule { }

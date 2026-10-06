@@ -1,6 +1,7 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { IsArray, IsBoolean, IsEmail, IsInt, IsMilitaryTime, IsNotEmpty, IsOptional, IsString } from "class-validator";
+import { IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsMilitaryTime, IsNotEmpty, IsOptional, IsString } from "class-validator";
 import { ListQueryDto } from 'src/common/list-query';
+import { StoreType } from './clientstore.entity';
 
 export class ClientstoreCreateDto {
     @IsOptional()
@@ -16,7 +17,7 @@ export class ClientstoreCreateDto {
     store_code: string;
 
     @IsOptional()
-    @IsString()
+    @IsIn(Object.values(StoreType))
     store_type: string;
 
     @IsOptional()

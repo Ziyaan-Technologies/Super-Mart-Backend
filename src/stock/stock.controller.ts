@@ -54,6 +54,13 @@ export class StockController {
         return this.stockService.stockList(await this.listFilter(actor, body), body.page || 1, body.take || 10, body.sortBy);
     }
 
+    // Products whose Mart stock is at or below its minimum, with a suggested quantity to move from the warehouse.
+    @HasPermission('stock_transfers_create')
+    @Get('refill')
+    async refill(@Actor() actor: AuthActor) {
+        return this.stockService.refillSuggestions(requiredVendorId(actor));
+    }
+
     @HasPermission('stock_view')
     @Post('v1/movements')
     async movements(@Actor() actor: AuthActor, @Body() body: StockMovementListDto) {
@@ -144,9 +151,12 @@ export class StockController {
             { header: 'Variant', key: 'variant_name', width: 18 },
             { header: 'SKU', key: 'sku', width: 16 },
             { header: 'Category', key: 'category_name', width: 20 },
-            { header: 'Quantity', key: 'quantity', width: 12 },
+            { header: 'Warehouse', key: 'warehouse_quantity', width: 12 },
+            { header: 'Mart', key: 'mart_quantity', width: 12 },
+            { header: 'Total', key: 'quantity', width: 12 },
             { header: 'Unit', key: 'stock_unit', width: 8 },
             { header: 'Reorder', key: 'reorder_level', width: 10 },
+            { header: 'Mart Min', key: 'mart_min_level', width: 10 },
             { header: 'Avg Cost', key: 'average_cost', width: 12 },
             { header: 'Value', key: 'stock_value', width: 14 },
             { header: 'Status', key: 'stock_status', width: 14 },
