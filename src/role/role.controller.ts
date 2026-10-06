@@ -40,9 +40,11 @@ export class RoleController {
             }
             return [andConditions];
         }
+        // his own roles, plus the shared Owner role; the shared staff roles are
+        // hidden because every client has his own copy of them
         return [
             { ...dateCondition, type: RoleType.VENDOR, vendor: { id: actor.vendor_id } },
-            { ...dateCondition, type: RoleType.VENDOR, vendor: IsNull() },
+            { ...dateCondition, type: RoleType.VENDOR, vendor: IsNull(), name: 'Owner' },
         ];
     }
 
@@ -79,10 +81,9 @@ export class RoleController {
     }
 
     private async assertUniqueName(name: string, type: RoleType, vendorId: number | null, exceptId?: number) {
+        // a client's own roles are named after the shared ones on purpose,
+        // so a name only has to be unique inside the same owner's list
         const conditions: any[] = [{ name, type, vendor: vendorId ? { id: vendorId } : IsNull() }];
-        if (type === RoleType.VENDOR && vendorId) {
-            conditions.push({ name, type, is_system: true, vendor: IsNull() });
-        }
         const existing = await this.roleService.findOne(conditions.map((condition) => exceptId ? { ...condition, id: Not(exceptId) } : condition));
         if (existing) {
             throw new BadRequestException(`A role with the name "${name}" already exists.`);

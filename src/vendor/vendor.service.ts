@@ -25,8 +25,7 @@ export class VendorService extends AbstractService {
 
     async createWithOwner(body: VendorCreateDto): Promise<Vendor> {
         const { owner, country_id, city_id, ...data } = body;
-        const electric = data.business_type === BusinessType.ELECTRIC;
-        const roleType = electric ? RoleType.ELECTRIC : RoleType.VENDOR;
+        const roleType = data.business_type === BusinessType.ELECTRIC ? RoleType.ELECTRIC : RoleType.VENDOR;
         return this.dataSource.transaction(async (manager) => {
             const ownerRole = await manager.findOne(Role, { where: { name: 'Owner', type: roleType, is_system: true, vendor: IsNull() } });
             if (!ownerRole) {
@@ -54,16 +53,16 @@ export class VendorService extends AbstractService {
                 country: { id: country_id },
                 city: city_id ? { id: city_id } : null,
             });
-            if (electric) {
-                const templates = await manager.find(Role, { where: { type: RoleType.ELECTRIC, is_system: true, vendor: IsNull() }, relations: ['permissions'] });
-                await manager.save(Role, templates.filter((role) => role.name !== 'Owner').map((role) => manager.create(Role, {
-                    name: role.name,
-                    type: RoleType.ELECTRIC,
-                    is_system: false,
-                    vendor: { id: vendor.id },
-                    permissions: role.permissions,
-                })));
-            }
+            // every client gets its own copies of the staff roles, so one client's
+            // permissions can be changed without touching anybody else's
+            const templates = await manager.find(Role, { where: { type: roleType, is_system: true, vendor: IsNull() }, relations: ['permissions'] });
+            await manager.save(Role, templates.filter((role) => role.name !== 'Owner').map((role) => manager.create(Role, {
+                name: role.name,
+                type: roleType,
+                is_system: false,
+                vendor: { id: vendor.id },
+                permissions: role.permissions,
+            })));
             return vendor;
         });
     }
