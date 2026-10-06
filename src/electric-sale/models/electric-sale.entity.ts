@@ -87,6 +87,12 @@ export class ElectricSale extends ElectricDocumentTotals {
   @Column({ type: 'decimal', precision: 20, scale: 2, default: 0, transformer: DecimalTransformer })
   refunded_amount: number;
 
+  @Column({ type: 'timestamp', nullable: true })
+  edited_at: Date;
+
+  @Column({ nullable: true })
+  edited_by: number;
+
   @Column({ type: 'enum', enum: ElectricSaleStatus, default: ElectricSaleStatus.COMPLETED })
   status: ElectricSaleStatus;
 

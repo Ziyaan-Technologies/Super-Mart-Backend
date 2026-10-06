@@ -72,4 +72,16 @@ export class ElectricCreditorController {
     addPayment(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: ElectricCreditorPaymentDto) {
         return this.creditorService.addPayment(actor, id, body);
     }
+
+    @HasPermission('creditors_payment')
+    @Put(':id/payments/:paymentId')
+    updatePayment(@Actor() actor: AuthActor, @Param('id') id: number, @Param('paymentId') paymentId: number, @Body() body: ElectricCreditorPaymentDto) {
+        return this.creditorService.updatePayment(actor, id, paymentId, body);
+    }
+
+    @HasPermission('creditors_payment')
+    @Delete(':id/payments/:paymentId')
+    removePayment(@Actor() actor: AuthActor, @Param('id') id: number, @Param('paymentId') paymentId: number) {
+        return this.creditorService.removePayment(actor, id, paymentId);
+    }
 }

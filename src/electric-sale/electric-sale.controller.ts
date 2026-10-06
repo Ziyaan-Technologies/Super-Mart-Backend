@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { Actor, ActorType, AuthActor } from 'src/common/auth-actor';
 import { ActorTypes } from 'src/common/actor-types.decorator';
 import { ElectricApi } from 'src/common/electric-api.decorator';
@@ -52,6 +52,18 @@ export class ElectricSaleController {
     @Post('sales/:id/debtor')
     attachDebtor(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: any) {
         return this.saleService.attachDebtor(actor, Number(id), body);
+    }
+
+    @HasPermission('sales_edit')
+    @Put('sales/:id')
+    editSale(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: any) {
+        return this.saleService.editSale(actor, Number(id), body);
+    }
+
+    @HasPermission('sales_delete')
+    @Delete('sales/:id')
+    deleteSale(@Actor() actor: AuthActor, @Param('id') id: number) {
+        return this.saleService.deleteSale(actor, Number(id));
     }
 
     @HasPermission('pos_return')

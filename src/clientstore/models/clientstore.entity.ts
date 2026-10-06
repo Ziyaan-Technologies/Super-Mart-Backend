@@ -42,6 +42,16 @@ export class Clientstore {
   @Column()
   store_code: string;
 
+  // the last number handed out, so a deleted bill never has its number reused
+  @Column({ type: 'int', default: 0 })
+  last_bill_no: number;
+
+  @Column({ type: 'int', default: 0 })
+  last_quotation_no: number;
+
+  @Column({ type: 'int', default: 0 })
+  last_return_no: number;
+
   @Column({ nullable: true })
   store_type: string;
 

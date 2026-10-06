@@ -60,4 +60,16 @@ export class ElectricDebtorController {
     addPayment(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: ElectricDebtorPaymentDto) {
         return this.debtorService.addPayment(actor, id, body);
     }
+
+    @HasPermission('debtors_payment')
+    @Put(':id/payments/:paymentId')
+    updatePayment(@Actor() actor: AuthActor, @Param('id') id: number, @Param('paymentId') paymentId: number, @Body() body: ElectricDebtorPaymentDto) {
+        return this.debtorService.updatePayment(actor, id, paymentId, body);
+    }
+
+    @HasPermission('debtors_payment')
+    @Delete(':id/payments/:paymentId')
+    removePayment(@Actor() actor: AuthActor, @Param('id') id: number, @Param('paymentId') paymentId: number) {
+        return this.debtorService.removePayment(actor, id, paymentId);
+    }
 }

@@ -4,9 +4,10 @@ import { DataSource, Repository } from 'typeorm';
 import { AuthActor } from 'src/common/auth-actor';
 import { roundAmount } from 'src/common/decimal.transformer';
 import { ElectricListDto } from 'src/common/electric.dto';
-import { SUPPLIER_REASON, addCashMove, brief } from 'src/common/electric-document';
+import { SUPPLIER_REASON, addCashMove, brief, sessionTotals } from 'src/common/electric-document';
 import { ElectricAccessService } from 'src/electric-access/electric-access.service';
-import { ElectricCashMoveType } from 'src/electric-counter/models/electric-cash-move.entity';
+import { ElectricCashMove, ElectricCashMoveType } from 'src/electric-counter/models/electric-cash-move.entity';
+import { ElectricSessionStatus } from 'src/electric-counter/models/electric-counter-session.entity';
 import { ElectricPaymentMethod } from 'src/electric-sale/models/electric-sale.entity';
 import { ElectricCreditor } from './models/electric-creditor.entity';
 import { ElectricCreditorEntry, ElectricCreditorEntryType } from './models/electric-creditor-entry.entity';
@@ -321,6 +322,60 @@ export class ElectricCreditorService {
                 note,
                 paid_by_client: { id: actor.id },
             });
+        });
+        return this.detail(actor, creditor.id);
+    }
+
+    /** a payment can only be changed while the counter it came out of is still open */
+    private async editablePayment(creditorId: number, paymentId: any) {
+        const payment = await this.paymentRepository.findOne({
+            where: { id: Number(paymentId), creditor: { id: creditorId } },
+            relations: ['session'],
+        });
+        if (!payment) {
+            throw new NotFoundException('Payment not found');
+        }
+        if (payment.session && payment.session.status !== ElectricSessionStatus.OPEN) {
+            throw new BadRequestException('This payment came out of a counter that is already closed, so it cannot be changed');
+        }
+        return payment;
+    }
+
+    async updatePayment(actor: AuthActor, id: any, paymentId: any, body: ElectricCreditorPaymentDto) {
+        const creditor = await this.own(actor, id);
+        const payment = await this.editablePayment(creditor.id, paymentId);
+        const amount = roundAmount(Number(body.amount) || 0);
+        if (amount <= 0) {
+            throw new BadRequestException('Enter the amount being paid');
+        }
+        const note = body.note === undefined ? payment.note : (body.note?.trim() || null);
+        await this.dataSource.transaction(async (manager) => {
+            if (payment.cash_move_id) {
+                const extra = roundAmount(amount - payment.amount);
+                if (extra > 0) {
+                    const totals = await sessionTotals(manager, payment.session);
+                    if (extra > totals.cash_now) {
+                        throw new BadRequestException('There is not that much cash left in the counter');
+                    }
+                }
+                await manager.update(ElectricCashMove, payment.cash_move_id, {
+                    amount,
+                    note: [creditor.name, note].filter(Boolean).join(' · ') || null,
+                });
+            }
+            await manager.update(ElectricCreditorPayment, payment.id, { amount, note });
+        });
+        return this.detail(actor, creditor.id);
+    }
+
+    async removePayment(actor: AuthActor, id: any, paymentId: any) {
+        const creditor = await this.own(actor, id);
+        const payment = await this.editablePayment(creditor.id, paymentId);
+        await this.dataSource.transaction(async (manager) => {
+            await manager.delete(ElectricCreditorPayment, payment.id);
+            if (payment.cash_move_id) {
+                await manager.delete(ElectricCashMove, payment.cash_move_id);
+            }
         });
         return this.detail(actor, creditor.id);
     }

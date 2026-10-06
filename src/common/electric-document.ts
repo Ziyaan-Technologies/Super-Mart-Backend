@@ -48,7 +48,9 @@ export function keptShare(item: { quantity: number; returned_quantity: number })
 }
 
 export function saleProfit(sale: ElectricSale) {
-    return roundAmount((sale.items || []).reduce((sum, item) => (item.cost_price === null ? sum : sum + (item.total - item.cost_price * item.quantity) * keptShare(item)), 0));
+    return roundAmount((sale.items || []).reduce((sum, item) => (item.is_charge || item.cost_price === null
+        ? sum
+        : sum + (item.total - item.cost_price * item.quantity) * keptShare(item)), 0));
 }
 
 export function quotationStatus(quotation: ElectricQuotation) {
@@ -135,9 +137,16 @@ export async function sessionTotals(manager: EntityManager, session: ElectricCou
 
 export async function nextNumber(manager: EntityManager, clientstoreId: number, kind: 'B' | 'Q' | 'R') {
     const shop = await manager.createQueryBuilder(Clientstore, 'shop').setLock('pessimistic_write').where('shop.id = :id', { id: clientstoreId }).getOne();
-    const table = kind === 'B' ? ElectricSale : kind === 'Q' ? ElectricQuotation : ElectricSaleReturn;
-    const count = await manager.count(table as any, { where: { clientstore: { id: clientstoreId } } });
-    return `${shop.store_code}-${kind}${1001 + count}`;
+    const table = kind === 'B' ? 'electric_sales' : kind === 'Q' ? 'electric_quotations' : 'electric_sale_returns';
+    const column = kind === 'B' ? 'bill_number' : kind === 'Q' ? 'quotation_number' : 'return_number';
+    const field = kind === 'B' ? 'last_bill_no' : kind === 'Q' ? 'last_quotation_no' : 'last_return_no';
+    const [row] = await manager.query(
+        `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(${column}, '-${kind}', -1) AS UNSIGNED)), 0) AS last FROM ${table} WHERE clientstore_id = ?`,
+        [clientstoreId],
+    );
+    const next = Math.max(Number(row.last) || 0, Number((shop as any)[field]) || 0, 1000) + 1;
+    await manager.update(Clientstore, shop.id, { [field]: next });
+    return `${shop.store_code}-${kind}${next}`;
 }
 
 export async function openSession(manager: EntityManager, actor: ElectricActor, counterId: number, openingCash: number, at = new Date()) {
@@ -204,21 +213,7 @@ export async function addCashMove(manager: EntityManager, actorId: number, sessi
     if (type === ElectricCashMoveType.OUT && amount > (await sessionTotals(manager, session)).cash_now) {
         throw new BadRequestException('Cash out is more than the cash in the counter');
     }
-    if (creditorId) {
-        await manager.save(ElectricCreditorPayment, {
-            creditor: { id: creditorId },
-            vendor: { id: session.vendor_id },
-            clientstore: { id: session.clientstore_id },
-            counter: { id: session.counter_id },
-            session: { id: session.id },
-            amount,
-            method: ElectricPaymentMethod.CASH,
-            note: body.note?.trim() || null,
-            paid_by_client: { id: actorId },
-            created_at: at,
-        });
-    }
-    return manager.save(ElectricCashMove, {
+    const move = await manager.save(ElectricCashMove, {
         session: { id: session.id },
         counter: { id: session.counter_id },
         clientstore: { id: session.clientstore_id },
@@ -229,6 +224,22 @@ export async function addCashMove(manager: EntityManager, actorId: number, sessi
         created_by_client: { id: actorId },
         created_at: at,
     });
+    if (creditorId) {
+        await manager.save(ElectricCreditorPayment, {
+            creditor: { id: creditorId },
+            vendor: { id: session.vendor_id },
+            clientstore: { id: session.clientstore_id },
+            counter: { id: session.counter_id },
+            session: { id: session.id },
+            cash_move: { id: move.id },
+            amount,
+            method: ElectricPaymentMethod.CASH,
+            note: body.note?.trim() || null,
+            paid_by_client: { id: actorId },
+            created_at: at,
+        });
+    }
+    return move;
 }
 
 export async function closeSession(manager: EntityManager, session: ElectricCounterSession, body: any, at = new Date()) {
@@ -329,6 +340,12 @@ export async function prepareLines(manager: EntityManager, granted: Granted, sho
             discount_value: Math.max(0, Number(line.discount_value) || 0),
             bill_discount_code: line.bill_discount_code || null,
         };
+        if (line.is_charge) {
+            if (!String(line.product_name || '').trim()) {
+                throw new BadRequestException('Write what the charge is for');
+            }
+            return { ...discount, product_id: null, variant_id: null, product_name: String(line.product_name).trim(), variant_name: '', image_url: null, quantity, unit_price: price, original_price: price, cost_price: null, is_outside: false, is_charge: true, creditor_id: null };
+        }
         if (line.is_outside) {
             need(granted, 'pos_outside_item', 'You cannot add items from another shopkeeper');
             if (!String(line.product_name || '').trim()) {
@@ -338,7 +355,7 @@ export async function prepareLines(manager: EntityManager, granted: Granted, sho
             if (creditorId && !creditors.has(creditorId)) {
                 throw new BadRequestException('That shopkeeper is not on your creditor list');
             }
-            return { ...discount, product_id: null, variant_id: null, product_name: String(line.product_name).trim(), variant_name: '', image_url: null, quantity, unit_price: price, original_price: price, cost_price: null, is_outside: true, creditor_id: creditorId };
+            return { ...discount, product_id: null, variant_id: null, product_name: String(line.product_name).trim(), variant_name: '', image_url: null, quantity, unit_price: price, original_price: price, cost_price: null, is_outside: true, is_charge: false, creditor_id: creditorId };
         }
         const variant = variants.find((row) => row.id === Number(line.variant_id));
         if (!variant || variant.product.clientstore_id !== shopId || !variant.product.is_active || !variant.is_active) {
@@ -368,6 +385,7 @@ export async function prepareLines(manager: EntityManager, granted: Granted, sho
             original_price: variant.sale_price,
             cost_price: variant.cost_price,
             is_outside: false,
+            is_charge: false,
             creditor_id: null,
         };
     });
@@ -442,7 +460,7 @@ export async function createSale(manager: EntityManager, actor: ElectricActor, b
     if (method === ElectricPaymentMethod.CASH && received < paid) {
         throw new BadRequestException(debtor ? 'Cash received is less than the amount being paid' : 'Cash received is less than the bill total');
     }
-    for (const item of items.filter((row) => !row.is_outside)) {
+    for (const item of items.filter((row) => row.variant_id)) {
         await manager.decrement(ElectricProductVariant, { id: item.variant_id }, 'stock', item.quantity);
     }
     const sale = await manager.save(ElectricSale, {
@@ -477,6 +495,126 @@ export async function createSale(manager: EntityManager, actor: ElectricActor, b
         await manager.update(ElectricQuotation, quotation.id, { status: ElectricQuotationStatus.CONVERTED, sale_id: sale.id });
     }
     return sale.id;
+}
+
+/**
+ * Re-make a bill from the lines sent in, keeping its number, counter and date.
+ * Only while the counter that made it is still open, and only before anything
+ * else has happened to it, so no closed day is ever rewritten.
+ */
+export async function editSale(manager: EntityManager, actor: ElectricActor, saleId: number, body: any, options: { granted: Granted }) {
+    const { granted } = options;
+    const sale = await manager.createQueryBuilder(ElectricSale, 'sale').setLock('pessimistic_write').where('sale.id = :saleId', { saleId }).getOne();
+    if (!sale) {
+        throw new NotFoundException('Bill not found');
+    }
+    const session = await manager.findOne(ElectricCounterSession, { where: { id: sale.session_id } });
+    if (!session || session.status !== ElectricSessionStatus.OPEN) {
+        throw new BadRequestException('The counter this bill was made on is closed, so it cannot be changed. Make a return instead.');
+    }
+    if (granted && session.cashier_id !== actor.id && !granted.has('pos_any_counter')) {
+        throw new ForbiddenException('This counter is opened by someone else');
+    }
+    if (sale.status !== ElectricSaleStatus.COMPLETED || sale.refunded_amount > 0) {
+        throw new BadRequestException('This bill has a return on it, so it cannot be changed');
+    }
+    if (await manager.count(ElectricBillPayment, { where: { sale: { id: sale.id } } })) {
+        throw new BadRequestException('A payment has already been taken on this bill, so it cannot be changed');
+    }
+    const old = await manager.find(ElectricSaleItem, { where: { sale: { id: sale.id } } });
+    for (const item of old.filter((row) => row.variant_id)) {
+        await manager.increment(ElectricProductVariant, { id: item.variant_id }, 'stock', item.quantity);
+    }
+    await manager.delete(ElectricSaleItem, { sale: { id: sale.id } });
+    const discounts = cleanDiscounts(body.bill_discounts);
+    if (discounts.some((discount) => discount.value > 0)) {
+        need(granted, 'pos_bill_discount', 'You cannot give bill discounts');
+    }
+    const lines = await prepareLines(manager, granted, session.clientstore_id, body.lines, true);
+    const { bill, items } = documentLines(lines, discounts);
+    const method = Object.values(ElectricPaymentMethod).includes(body.payment_method) ? body.payment_method : sale.payment_method;
+    const debtor = body.debtor_id
+        ? await manager.findOne(ElectricDebtor, { where: { id: Number(body.debtor_id), clientstore: { id: session.clientstore_id } } })
+        : null;
+    if (body.debtor_id && !debtor) {
+        throw new NotFoundException('This customer is not on this shop\'s khata list');
+    }
+    const dueDate = String(body.due_date || '').trim() || null;
+    const payLater = !!debtor || !!dueDate || body.paid_amount !== undefined;
+    const paid = payLater
+        ? roundAmount(Math.min(Math.max(Number(body.paid_amount) || 0, 0), bill.total))
+        : bill.total;
+    const khata = roundAmount(bill.total - paid);
+    if (khata > 0) {
+        need(granted, debtor ? 'pos_debtor_sale' : 'pos_pay_later', debtor
+            ? 'You cannot put a bill on a khata'
+            : 'You cannot take a bill without full payment');
+        if (!debtor && !String(body.customer_name || '').trim()) {
+            throw new BadRequestException('Enter the customer name for a pay later bill');
+        }
+        if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+            throw new BadRequestException('The promised date is not a valid date');
+        }
+    }
+    const received = method === ElectricPaymentMethod.CASH ? roundAmount(Number(body.amount_received ?? paid)) : paid;
+    if (method === ElectricPaymentMethod.CASH && received < paid) {
+        throw new BadRequestException(debtor ? 'Cash received is less than the amount being paid' : 'Cash received is less than the bill total');
+    }
+    for (const item of items.filter((row) => row.variant_id)) {
+        await manager.decrement(ElectricProductVariant, { id: item.variant_id }, 'stock', item.quantity);
+    }
+    await manager.update(ElectricSale, sale.id, {
+        bill_discounts: bill.discounts as any,
+        debtor_id: debtor?.id || null,
+        customer_name: debtor?.name || body.customer_name?.trim() || null,
+        customer_phone: debtor?.phone || body.customer_phone?.trim() || null,
+        note: body.note?.trim() || null,
+        subtotal: bill.subtotal,
+        item_discount: bill.item_discount,
+        bill_discount: bill.bill_discount,
+        total_amount: bill.total,
+        payment_method: method,
+        amount_received: received,
+        change_amount: roundAmount(received - paid),
+        paid_amount: paid,
+        khata_amount: khata,
+        due_date: khata > 0 ? dueDate : null,
+        edited_at: new Date(),
+        edited_by: actor.id,
+    });
+    await manager.save(ElectricSaleItem, items.map((item) => ({ ...item, sale: { id: sale.id }, returned_quantity: 0 })));
+    return sale.id;
+}
+
+/** throw a bill away: the stock comes back and the money leaves the counter with it */
+export async function deleteSale(manager: EntityManager, actor: ElectricActor, saleId: number, options: { granted: Granted }) {
+    const { granted } = options;
+    const sale = await manager.createQueryBuilder(ElectricSale, 'sale').setLock('pessimistic_write').where('sale.id = :saleId', { saleId }).getOne();
+    if (!sale) {
+        throw new NotFoundException('Bill not found');
+    }
+    const session = await manager.findOne(ElectricCounterSession, { where: { id: sale.session_id } });
+    if (!session || session.status !== ElectricSessionStatus.OPEN) {
+        throw new BadRequestException('The counter this bill was made on is closed, so it cannot be deleted. Make a return instead.');
+    }
+    if (granted && session.cashier_id !== actor.id && !granted.has('pos_any_counter')) {
+        throw new ForbiddenException('This counter is opened by someone else');
+    }
+    if (sale.status !== ElectricSaleStatus.COMPLETED || sale.refunded_amount > 0) {
+        throw new BadRequestException('This bill has a return on it, so it cannot be deleted');
+    }
+    if (await manager.count(ElectricBillPayment, { where: { sale: { id: sale.id } } })) {
+        throw new BadRequestException('A payment has already been taken on this bill, so it cannot be deleted');
+    }
+    const items = await manager.find(ElectricSaleItem, { where: { sale: { id: sale.id } } });
+    for (const item of items.filter((row) => row.variant_id)) {
+        await manager.increment(ElectricProductVariant, { id: item.variant_id }, 'stock', item.quantity);
+    }
+    if (sale.quotation_id) {
+        await manager.update(ElectricQuotation, sale.quotation_id, { status: ElectricQuotationStatus.OPEN, sale_id: null });
+    }
+    await manager.delete(ElectricSale, sale.id);
+    return sale.bill_number;
 }
 
 export async function createQuotation(manager: EntityManager, actor: ElectricActor, body: any, options: { granted: Granted; at?: Date }) {

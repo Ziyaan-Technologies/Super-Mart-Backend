@@ -6,7 +6,7 @@ import { AuthActor } from 'src/common/auth-actor';
 import { paginateQuery } from 'src/common/document-list';
 import { roundAmount } from 'src/common/decimal.transformer';
 import { ElectricListDto } from 'src/common/electric.dto';
-import { brief, createSale, dayKey, isPending, payBill, paymentState, returnSale, saleProfit, setItemCost, shopView, vendorView } from 'src/common/electric-document';
+import { brief, createSale, dayKey, deleteSale, editSale, isPending, payBill, paymentState, returnSale, saleProfit, setItemCost, shopView, vendorView } from 'src/common/electric-document';
 import { Clientstore } from 'src/clientstore/models/clientstore.entity';
 import { ElectricAccessService } from 'src/electric-access/electric-access.service';
 import { ElectricQuotationService } from 'src/electric-quotation/electric-quotation.service';
@@ -152,6 +152,24 @@ export class ElectricSaleService {
         const record = await this.access.record(actor);
         const id = await this.dataSource.transaction((manager) => createSale(manager, record, body, { granted }));
         return this.saleView(await this.saleRepository.findOne({ where: { id }, relations: this.saleRelations }));
+    }
+
+    async editSale(actor: AuthActor, id: number, body: any) {
+        await this.access.need(actor, 'sales_edit', 'You cannot change bills');
+        await this.seeSale(actor, id);
+        const granted = await this.access.granted(actor);
+        const record = await this.access.record(actor);
+        await this.dataSource.transaction((manager) => editSale(manager, record, id, body, { granted }));
+        return this.saleView(await this.saleRepository.findOne({ where: { id }, relations: this.saleRelations }));
+    }
+
+    async deleteSale(actor: AuthActor, id: number) {
+        await this.access.need(actor, 'sales_delete', 'You cannot delete bills');
+        await this.seeSale(actor, id);
+        const granted = await this.access.granted(actor);
+        const record = await this.access.record(actor);
+        const number = await this.dataSource.transaction((manager) => deleteSale(manager, record, id, { granted }));
+        return { message: `Bill ${number} deleted` };
     }
 
     async returnSale(actor: AuthActor, id: number, body: any) {

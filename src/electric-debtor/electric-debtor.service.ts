@@ -6,6 +6,7 @@ import { roundAmount } from 'src/common/decimal.transformer';
 import { ElectricListDto } from 'src/common/electric.dto';
 import { brief } from 'src/common/electric-document';
 import { ElectricAccessService } from 'src/electric-access/electric-access.service';
+import { ElectricSessionStatus } from 'src/electric-counter/models/electric-counter-session.entity';
 import { ElectricPaymentMethod, ElectricSale } from 'src/electric-sale/models/electric-sale.entity';
 import { ElectricDebtor } from './models/electric-debtor.entity';
 import { ElectricDebtorPayment } from './models/electric-debtor-payment.entity';
@@ -242,6 +243,50 @@ export class ElectricDebtorService {
             note: body.note?.trim() || null,
             received_by_client: { id: actor.id },
         });
+        return this.detail(actor, debtor.id);
+    }
+
+    /** a payment can only be changed while the counter that took it is still open */
+    private async editablePayment(actor: AuthActor, debtorId: number, paymentId: any) {
+        const payment = await this.paymentRepository.findOne({
+            where: { id: Number(paymentId), debtor: { id: debtorId } },
+            relations: ['session'],
+        });
+        if (!payment) {
+            throw new NotFoundException('Payment not found');
+        }
+        if (payment.session && payment.session.status !== ElectricSessionStatus.OPEN) {
+            throw new BadRequestException('This payment went into a counter that is already closed, so it cannot be changed');
+        }
+        return payment;
+    }
+
+    async updatePayment(actor: AuthActor, id: any, paymentId: any, body: ElectricDebtorPaymentDto) {
+        const debtor = await this.own(actor, id);
+        const payment = await this.editablePayment(actor, debtor.id, paymentId);
+        const amount = roundAmount(Number(body.amount) || 0);
+        if (amount <= 0) {
+            throw new BadRequestException('Enter the amount being paid');
+        }
+        const totals = await this.balances(actor.vendor_id, [debtor.id]);
+        const owing = roundAmount(this.view(debtor, totals.get(debtor.id)).balance + payment.amount);
+        if (amount > owing) {
+            throw new BadRequestException(`This debtor only owes ${owing}`);
+        }
+        await this.paymentRepository.update(payment.id, {
+            amount,
+            method: Object.values(ElectricPaymentMethod).includes(body.method as ElectricPaymentMethod)
+                ? (body.method as ElectricPaymentMethod)
+                : payment.method,
+            note: body.note === undefined ? payment.note : (body.note?.trim() || null),
+        });
+        return this.detail(actor, debtor.id);
+    }
+
+    async removePayment(actor: AuthActor, id: any, paymentId: any) {
+        const debtor = await this.own(actor, id);
+        const payment = await this.editablePayment(actor, debtor.id, paymentId);
+        await this.paymentRepository.delete(payment.id);
         return this.detail(actor, debtor.id);
     }
 }

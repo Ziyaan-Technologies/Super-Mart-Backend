@@ -5,6 +5,7 @@ import { Clientstore } from 'src/clientstore/models/clientstore.entity';
 import { Vendor } from 'src/vendor/models/vendor.entity';
 import { ElectricCounter } from 'src/electric-counter/models/electric-counter.entity';
 import { ElectricCounterSession } from 'src/electric-counter/models/electric-counter-session.entity';
+import { ElectricCashMove } from 'src/electric-counter/models/electric-cash-move.entity';
 import { ElectricPaymentMethod } from 'src/electric-sale/models/electric-sale.entity';
 import { ElectricCreditor } from './electric-creditor.entity';
 
@@ -47,6 +48,13 @@ export class ElectricCreditorPayment {
 
   @RelationId((payment: ElectricCreditorPayment) => payment.session)
   session_id: number;
+
+  @ManyToOne(() => ElectricCashMove, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'cash_move_id' })
+  cash_move: ElectricCashMove;
+
+  @RelationId((payment: ElectricCreditorPayment) => payment.cash_move)
+  cash_move_id: number;
 
   @Column({ type: 'decimal', precision: 20, scale: 2, default: 0, transformer: DecimalTransformer })
   amount: number;

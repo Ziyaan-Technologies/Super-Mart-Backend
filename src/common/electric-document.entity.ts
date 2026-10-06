@@ -55,6 +55,9 @@ export abstract class ElectricDocumentLine {
   @Column({ default: false })
   is_outside: boolean;
 
+  @Column({ default: false })
+  is_charge: boolean;
+
   @Column({ type: 'decimal', precision: 20, scale: 2, nullable: true, transformer: DecimalTransformer })
   cost_price: number;
 }
