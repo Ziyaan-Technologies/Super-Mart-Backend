@@ -588,28 +588,27 @@ export async function editSale(manager: EntityManager, actor: ElectricActor, sal
 
 /** throw a bill away: the stock comes back and the money leaves the counter with it */
 export async function deleteSale(manager: EntityManager, actor: ElectricActor, saleId: number, options: { granted: Granted }) {
-    const { granted } = options;
     const sale = await manager.createQueryBuilder(ElectricSale, 'sale').setLock('pessimistic_write').where('sale.id = :saleId', { saleId }).getOne();
     if (!sale) {
         throw new NotFoundException('Bill not found');
     }
-    const session = await manager.findOne(ElectricCounterSession, { where: { id: sale.session_id } });
-    if (!session || session.status !== ElectricSessionStatus.OPEN) {
-        throw new BadRequestException('The counter this bill was made on is closed, so it cannot be deleted. Make a return instead.');
-    }
-    if (granted && session.cashier_id !== actor.id && !granted.has('pos_any_counter')) {
-        throw new ForbiddenException('This counter is opened by someone else');
-    }
-    if (sale.status !== ElectricSaleStatus.COMPLETED || sale.refunded_amount > 0) {
-        throw new BadRequestException('This bill has a return on it, so it cannot be deleted');
-    }
+    // money taken against the bill must stay on the books, so that one is refused
     if (await manager.count(ElectricBillPayment, { where: { sale: { id: sale.id } } })) {
-        throw new BadRequestException('A payment has already been taken on this bill, so it cannot be deleted');
+        throw new BadRequestException('A payment has been taken against this bill, so it cannot be deleted. Return it instead.');
     }
     const items = await manager.find(ElectricSaleItem, { where: { sale: { id: sale.id } } });
+    // only the pieces the customer kept come back; what was returned is already in stock
     for (const item of items.filter((row) => row.variant_id)) {
-        await manager.increment(ElectricProductVariant, { id: item.variant_id }, 'stock', item.quantity);
+        const kept = roundQuantity(item.quantity - (item.returned_quantity || 0));
+        if (kept > 0) {
+            await manager.increment(ElectricProductVariant, { id: item.variant_id }, 'stock', kept);
+        }
     }
+    const returns = await manager.find(ElectricSaleReturn, { where: { sale: { id: sale.id } } });
+    for (const saleReturn of returns) {
+        await manager.delete(ElectricSaleReturnItem, { sale_return: { id: saleReturn.id } });
+    }
+    await manager.delete(ElectricSaleReturn, { sale: { id: sale.id } });
     if (sale.quotation_id) {
         await manager.update(ElectricQuotation, sale.quotation_id, { status: ElectricQuotationStatus.OPEN, sale_id: null });
     }

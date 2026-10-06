@@ -67,6 +67,18 @@ export class ElectricCreditorController {
         return this.creditorService.addIncentive(actor, id, body);
     }
 
+    @HasPermission('creditors_edit')
+    @Put(':id/entries/:entryId')
+    updateEntry(@Actor() actor: AuthActor, @Param('id') id: number, @Param('entryId') entryId: number, @Body() body: ElectricCreditorEntryDto) {
+        return this.creditorService.updateEntry(actor, id, entryId, body);
+    }
+
+    @HasPermission('creditors_edit')
+    @Delete(':id/entries/:entryId')
+    removeEntry(@Actor() actor: AuthActor, @Param('id') id: number, @Param('entryId') entryId: number) {
+        return this.creditorService.removeEntry(actor, id, entryId);
+    }
+
     @HasPermission('creditors_payment')
     @Post(':id/payments')
     addPayment(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: ElectricCreditorPaymentDto) {

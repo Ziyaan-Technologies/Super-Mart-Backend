@@ -379,4 +379,37 @@ export class ElectricCreditorService {
         });
         return this.detail(actor, creditor.id);
     }
+
+    /** a line that came off a bill belongs to that bill, so only hand-written ones can be touched */
+    private async ownEntry(creditorId: number, entryId: any) {
+        const entry = await this.entryRepository.findOne({ where: { id: Number(entryId), creditor: { id: creditorId } } });
+        if (!entry) {
+            throw new NotFoundException('Khata line not found');
+        }
+        if (entry.type === ElectricCreditorEntryType.ITEM) {
+            throw new BadRequestException('This line came from a bill. Change the bought price on that bill instead.');
+        }
+        return entry;
+    }
+
+    async updateEntry(actor: AuthActor, id: any, entryId: any, body: ElectricCreditorEntryDto) {
+        const creditor = await this.own(actor, id);
+        const entry = await this.ownEntry(creditor.id, entryId);
+        const amount = roundAmount(Number(body.amount) || 0);
+        if (amount <= 0) {
+            throw new BadRequestException('Enter what we owe him');
+        }
+        await this.entryRepository.update(entry.id, {
+            amount,
+            note: body.note === undefined ? entry.note : (body.note?.trim() || null),
+        });
+        return this.detail(actor, creditor.id);
+    }
+
+    async removeEntry(actor: AuthActor, id: any, entryId: any) {
+        const creditor = await this.own(actor, id);
+        const entry = await this.ownEntry(creditor.id, entryId);
+        await this.entryRepository.delete(entry.id);
+        return this.detail(actor, creditor.id);
+    }
 }
