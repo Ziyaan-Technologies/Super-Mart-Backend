@@ -270,6 +270,9 @@ export class StockService {
             query.having(`${quantityExpression} > 0`);
         } else if (filter.stockStatus === 'refill') {
             query.having(`${REFILL_CONDITION}`);
+        } else if (filter.stockStatus === 'needs_stock') {
+            // Anything to buy (total at or below reorder level, including out of stock) or to move to the Mart (Mart at or below its minimum).
+            query.having(`${quantityExpression} <= MAX(variant.reorder_level) OR (MAX(variant.mart_min_level) > 0 AND ${MART_QUANTITY} <= MAX(variant.mart_min_level))`);
         }
         return query;
     }
