@@ -70,8 +70,10 @@ export class ReceiptService {
             doc.y = Math.max(leftBottom, doc.y);
         };
 
+        // the branch's own logo comes first; the business one is the fallback
+        const logo = this.logoPath(sale.clientstore?.image_url) || this.logoPath(sale.vendor?.logo_url);
         // The logo already carries the business name, so the name is only printed without one.
-        if (!this.drawLogo(doc, this.logoPath(sale.vendor?.logo_url))) {
+        if (!this.drawLogo(doc, logo)) {
             doc.font(FONT).fontSize(14).text(sale.vendor?.business_name || '', MARGIN, doc.y, { width: inner, align: 'center' });
         }
         doc.font(FONT).fontSize(SIZE);
