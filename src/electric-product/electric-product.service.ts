@@ -8,7 +8,7 @@ import { ElectricListDto } from 'src/common/electric.dto';
 import { ElectricAccessService } from 'src/electric-access/electric-access.service';
 import { ElectricBrand } from 'src/electric-brand/models/electric-brand.entity';
 import { ElectricCategory } from 'src/electric-category/models/electric-category.entity';
-import { ElectricProduct } from './models/electric-product.entity';
+import { ElectricProduct, ElectricUnit } from './models/electric-product.entity';
 import { ElectricProductVariant } from './models/electric-product-variant.entity';
 import { ElectricStockEntry, ElectricStockEntryType } from './models/electric-stock-entry.entity';
 import { ElectricProductDto, ElectricStockDto } from './models/electric-product.dto';
@@ -85,6 +85,10 @@ export class ElectricProductService {
             [variantIds, variantIds],
         );
         return new Set<number>(rows.map((row: any) => Number(row.id)));
+    }
+
+    private cleanUnit(value: any) {
+        return Object.values(ElectricUnit).includes(value) ? (value as ElectricUnit) : ElectricUnit.PIECE;
     }
 
     private cleanNumber(value: any) {
@@ -173,6 +177,7 @@ export class ElectricProductService {
                 brand: body.brand_id ? { id: body.brand_id } : null,
                 number: this.cleanNumber(body.number),
                 name,
+                unit: this.cleanUnit(body.unit),
                 image_url: body.image_url || '',
                 is_active: body.is_active !== false,
             });
@@ -197,6 +202,7 @@ export class ElectricProductService {
                 brand: body.brand_id ? { id: body.brand_id } : null,
                 number: this.cleanNumber(body.number),
                 name,
+                unit: this.cleanUnit(body.unit),
                 image_url: body.image_url || existing.image_url || '',
                 is_active: body.is_active !== false,
             });

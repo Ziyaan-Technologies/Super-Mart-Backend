@@ -5,6 +5,13 @@ import { ElectricBrand } from 'src/electric-brand/models/electric-brand.entity';
 import { ElectricCategory } from 'src/electric-category/models/electric-category.entity';
 import { ElectricProductVariant } from './electric-product-variant.entity';
 
+/** how the thing is sold: by the piece, by weight or by length */
+export enum ElectricUnit {
+  PIECE = 'Piece',
+  KG = 'Kg',
+  FOOT = 'Foot',
+}
+
 @Entity('electric_products')
 export class ElectricProduct {
   @PrimaryGeneratedColumn()
@@ -43,6 +50,9 @@ export class ElectricProduct {
 
   @Column()
   name: string;
+
+  @Column({ type: 'enum', enum: ElectricUnit, default: ElectricUnit.PIECE })
+  unit: ElectricUnit;
 
   @Column({ nullable: true })
   image_url: string;

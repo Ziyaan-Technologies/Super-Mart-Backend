@@ -57,6 +57,10 @@ export class ElectricProductDto {
 
     @IsOptional()
     @IsString()
+    unit: string;
+
+    @IsOptional()
+    @IsString()
     image_url: string;
 
     @IsOptional()

@@ -373,7 +373,7 @@ export async function prepareLines(manager: EntityManager, granted: Granted, sho
             if (!String(line.product_name || '').trim()) {
                 throw new BadRequestException('Write what the charge is for');
             }
-            return { ...discount, product_id: null, variant_id: null, product_name: String(line.product_name).trim(), variant_name: '', image_url: null, quantity, unit_price: price, original_price: price, cost_price: null, is_outside: false, is_charge: true, creditor_id: null };
+            return { ...discount, product_id: null, variant_id: null, product_name: String(line.product_name).trim(), variant_name: '', image_url: null, quantity, unit_price: price, original_price: price, cost_price: null, unit: 'Piece', is_outside: false, is_charge: true, creditor_id: null };
         }
         if (line.is_outside) {
             need(granted, 'pos_outside_item', 'You cannot add items from another shopkeeper');
@@ -384,7 +384,7 @@ export async function prepareLines(manager: EntityManager, granted: Granted, sho
             if (creditorId && !creditors.has(creditorId)) {
                 throw new BadRequestException('That shopkeeper is not on your creditor list');
             }
-            return { ...discount, product_id: null, variant_id: null, product_name: String(line.product_name).trim(), variant_name: '', image_url: null, quantity, unit_price: price, original_price: price, cost_price: null, is_outside: true, is_charge: false, creditor_id: creditorId };
+            return { ...discount, product_id: null, variant_id: null, product_name: String(line.product_name).trim(), variant_name: '', image_url: null, quantity, unit_price: price, original_price: price, cost_price: null, unit: 'Piece', is_outside: true, is_charge: false, creditor_id: creditorId };
         }
         const variant = variants.find((row) => row.id === Number(line.variant_id));
         if (!variant || variant.product.clientstore_id !== shopId || !variant.product.is_active || !variant.is_active) {
@@ -413,6 +413,7 @@ export async function prepareLines(manager: EntityManager, granted: Granted, sho
             unit_price: price,
             original_price: variant.sale_price,
             cost_price: variant.cost_price,
+            unit: product.unit || 'Piece',
             is_outside: false,
             is_charge: false,
             creditor_id: null,

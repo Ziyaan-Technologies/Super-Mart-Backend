@@ -52,6 +52,9 @@ export abstract class ElectricDocumentLine {
   @Column({ type: 'decimal', precision: 20, scale: 2, default: 0, transformer: DecimalTransformer })
   total: number;
 
+  @Column({ default: 'Piece' })
+  unit: string;
+
   @Column({ default: false })
   is_outside: boolean;
 
