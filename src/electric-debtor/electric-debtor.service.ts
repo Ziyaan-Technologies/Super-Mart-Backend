@@ -61,6 +61,8 @@ export class ElectricDebtorService {
     }
 
     private view(debtor: ElectricDebtor, totals?: { billed: number; paid: number; given: number; bills: number; last_payment: Date | null }) {
+        // a minus balance means he has paid more than he owes, so his money sits with us
+        const balance = roundAmount(debtor.opening_balance + (totals?.billed || 0) + (totals?.given || 0) - (totals?.paid || 0));
         return {
             id: debtor.id,
             clientstore_id: debtor.clientstore_id,
@@ -77,7 +79,9 @@ export class ElectricDebtorService {
             paid: totals?.paid || 0,
             given: totals?.given || 0,
             last_payment: totals?.last_payment || null,
-            balance: roundAmount(debtor.opening_balance + (totals?.billed || 0) + (totals?.given || 0) - (totals?.paid || 0)),
+            balance,
+            owed: Math.max(balance, 0),
+            advance: Math.max(roundAmount(-balance), 0),
         };
     }
 
@@ -106,7 +110,10 @@ export class ElectricDebtorService {
             data = data.filter((row) => row.balance > 0);
         }
         if (body.balance === 'Clear') {
-            data = data.filter((row) => row.balance <= 0);
+            data = data.filter((row) => row.balance === 0);
+        }
+        if (body.balance === 'Advance') {
+            data = data.filter((row) => row.balance < 0);
         }
         const take = Number(body.take) || 10;
         const page = Number(body.page) || 1;
@@ -247,11 +254,6 @@ export class ElectricDebtorService {
         if (amount <= 0) {
             throw new BadRequestException('Enter the amount being paid');
         }
-        const totals = await this.balances(actor.vendor_id, [debtor.id]);
-        const balance = this.view(debtor, totals.get(debtor.id)).balance;
-        if (amount > balance) {
-            throw new BadRequestException(`This debtor only owes ${balance}`);
-        }
         const session = await this.access.cashSession(actor, Number(body.clientstore_id) || 0, body.session_id);
         const method = Object.values(ElectricPaymentMethod).includes(body.method as ElectricPaymentMethod)
             ? (body.method as ElectricPaymentMethod)
@@ -291,11 +293,6 @@ export class ElectricDebtorService {
         const amount = roundAmount(Number(body.amount) || 0);
         if (amount <= 0) {
             throw new BadRequestException('Enter the amount being paid');
-        }
-        const totals = await this.balances(actor.vendor_id, [debtor.id]);
-        const owing = roundAmount(this.view(debtor, totals.get(debtor.id)).balance + payment.amount);
-        if (amount > owing) {
-            throw new BadRequestException(`This debtor only owes ${owing}`);
         }
         await this.paymentRepository.update(payment.id, {
             amount,
