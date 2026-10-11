@@ -6,10 +6,11 @@ import { ElectricDebtorController } from './electric-debtor.controller';
 import { ElectricDebtorService } from './electric-debtor.service';
 import { ElectricDebtor } from './models/electric-debtor.entity';
 import { ElectricDebtorPayment } from './models/electric-debtor-payment.entity';
+import { ElectricDebtorEntry } from './models/electric-debtor-entry.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ElectricDebtor, ElectricDebtorPayment, ElectricSale], 'MainConnection'),
+    TypeOrmModule.forFeature([ElectricDebtor, ElectricDebtorPayment, ElectricDebtorEntry, ElectricSale], 'MainConnection'),
     ElectricAccessModule,
   ],
   controllers: [ElectricDebtorController],

@@ -129,7 +129,7 @@ export class ElectricProductService {
         return name;
     }
 
-    private variantData(variant: any, keepStock = false) {
+    private variantData(variant: any) {
         const data: any = {
             name: String(variant.name).trim(),
             barcode: String(variant.barcode || '').trim() || null,
@@ -138,9 +138,7 @@ export class ElectricProductService {
             is_active: variant.is_active !== false,
         };
         data.cost_price = roundAmount(Number(variant.cost_price) || 0);
-        if (!keepStock) {
-            data.stock = roundQuantity(Number(variant.stock) || 0);
-        }
+        data.stock = roundQuantity(Number(variant.stock) || 0);
         return data;
     }
 
@@ -205,20 +203,27 @@ export class ElectricProductService {
             for (const variant of body.variants) {
                 const current = existing.variants.find((row) => row.id === Number(variant.id));
                 if (current) {
-                    const data = this.variantData(variant, true);
-                    if (roundAmount(data.cost_price) !== roundAmount(current.cost_price)) {
+                    const data = this.variantData(variant);
+                    const costChanged = roundAmount(data.cost_price) !== roundAmount(current.cost_price);
+                    const stockChanged = roundQuantity(data.stock) !== roundQuantity(current.stock);
+                    // a hand change is written into the history so the item still explains itself
+                    if (costChanged || stockChanged) {
+                        const said = [
+                            stockChanged ? `Stock changed from ${current.stock} to ${data.stock}` : null,
+                            costChanged ? `Cost changed from ${current.cost_price} to ${data.cost_price}` : null,
+                        ].filter(Boolean).join(' · ');
                         await manager.save(ElectricStockEntry, {
                             vendor: { id: actor.vendor_id },
                             clientstore: { id: existing.clientstore_id },
                             product: { id: existing.id },
                             variant: { id: current.id },
                             type: ElectricStockEntryType.CORRECTION,
-                            quantity: 0,
+                            quantity: roundQuantity(data.stock - current.stock),
                             cost_price: data.cost_price,
                             total_cost: 0,
-                            stock_after: current.stock,
+                            stock_after: data.stock,
                             cost_after: data.cost_price,
-                            note: `Cost changed from ${current.cost_price} to ${data.cost_price}`,
+                            note: said,
                             created_by_client: { id: actor.id },
                         });
                     }

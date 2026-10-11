@@ -10,6 +10,7 @@ import { ElectricSessionStatus } from 'src/electric-counter/models/electric-coun
 import { ElectricPaymentMethod, ElectricSale } from 'src/electric-sale/models/electric-sale.entity';
 import { ElectricDebtor } from './models/electric-debtor.entity';
 import { ElectricDebtorPayment } from './models/electric-debtor-payment.entity';
+import { ElectricDebtorEntry } from './models/electric-debtor-entry.entity';
 import { ElectricDebtorDto, ElectricDebtorPaymentDto, ElectricDebtorUpdateDto } from './models/electric-debtor.dto';
 
 @Injectable()
@@ -18,15 +19,16 @@ export class ElectricDebtorService {
         private access: ElectricAccessService,
         @InjectRepository(ElectricDebtor, 'MainConnection') private readonly debtorRepository: Repository<ElectricDebtor>,
         @InjectRepository(ElectricDebtorPayment, 'MainConnection') private readonly paymentRepository: Repository<ElectricDebtorPayment>,
+        @InjectRepository(ElectricDebtorEntry, 'MainConnection') private readonly entryRepository: Repository<ElectricDebtorEntry>,
         @InjectRepository(ElectricSale, 'MainConnection') private readonly saleRepository: Repository<ElectricSale>,
     ) { }
 
     private async balances(vendorId: number, ids: number[]) {
-        const map = new Map<number, { billed: number; paid: number; bills: number; last_payment: Date | null }>();
+        const map = new Map<number, { billed: number; paid: number; given: number; bills: number; last_payment: Date | null }>();
         if (!ids.length) {
             return map;
         }
-        const [billed, paid] = await Promise.all([
+        const [billed, paid, given] = await Promise.all([
             this.debtorRepository.query(
                 `SELECT debtor_id, COALESCE(SUM(khata_amount), 0) AS amount, COUNT(*) AS bills
                  FROM electric_sales WHERE vendor_id = ? AND debtor_id IN (?) GROUP BY debtor_id`,
@@ -37,13 +39,20 @@ export class ElectricDebtorService {
                  FROM electric_debtor_payments WHERE vendor_id = ? AND debtor_id IN (?) GROUP BY debtor_id`,
                 [vendorId, ids],
             ),
+            this.debtorRepository.query(
+                `SELECT debtor_id, COALESCE(SUM(amount), 0) AS amount
+                 FROM electric_debtor_entries WHERE vendor_id = ? AND debtor_id IN (?) GROUP BY debtor_id`,
+                [vendorId, ids],
+            ),
         ]);
         ids.forEach((id) => {
             const billedRow = billed.find((row: any) => Number(row.debtor_id) === id);
             const paidRow = paid.find((row: any) => Number(row.debtor_id) === id);
+            const givenRow = given.find((row: any) => Number(row.debtor_id) === id);
             map.set(id, {
                 billed: roundAmount(parseFloat(billedRow?.amount || 0)),
                 paid: roundAmount(parseFloat(paidRow?.amount || 0)),
+                given: roundAmount(parseFloat(givenRow?.amount || 0)),
                 bills: Number(billedRow?.bills || 0),
                 last_payment: paidRow?.last_payment || null,
             });
@@ -51,7 +60,7 @@ export class ElectricDebtorService {
         return map;
     }
 
-    private view(debtor: ElectricDebtor, totals?: { billed: number; paid: number; bills: number; last_payment: Date | null }) {
+    private view(debtor: ElectricDebtor, totals?: { billed: number; paid: number; given: number; bills: number; last_payment: Date | null }) {
         return {
             id: debtor.id,
             clientstore_id: debtor.clientstore_id,
@@ -66,8 +75,9 @@ export class ElectricDebtorService {
             bills: totals?.bills || 0,
             billed: totals?.billed || 0,
             paid: totals?.paid || 0,
+            given: totals?.given || 0,
             last_payment: totals?.last_payment || null,
-            balance: roundAmount(debtor.opening_balance + (totals?.billed || 0) - (totals?.paid || 0)),
+            balance: roundAmount(debtor.opening_balance + (totals?.billed || 0) + (totals?.given || 0) - (totals?.paid || 0)),
         };
     }
 
@@ -132,7 +142,7 @@ export class ElectricDebtorService {
     async detail(actor: AuthActor, id: any) {
         const debtor = await this.own(actor, id);
         const totals = await this.balances(actor.vendor_id, [debtor.id]);
-        const [bills, payments] = await Promise.all([
+        const [bills, payments, given] = await Promise.all([
             this.saleRepository.find({
                 where: { debtor_id: debtor.id },
                 relations: ['clientstore', 'counter', 'cashier'],
@@ -141,6 +151,11 @@ export class ElectricDebtorService {
             this.paymentRepository.find({
                 where: { debtor: { id: debtor.id } },
                 relations: ['clientstore', 'counter', 'received_by_client'],
+                order: { id: 'DESC' },
+            }),
+            this.entryRepository.find({
+                where: { debtor: { id: debtor.id } },
+                relations: ['clientstore', 'counter', 'given_by_client'],
                 order: { id: 'DESC' },
             }),
         ]);
@@ -160,6 +175,15 @@ export class ElectricDebtorService {
                 khata_amount: sale.khata_amount,
                 refunded_amount: sale.refunded_amount,
                 status: sale.status,
+            })),
+            given_rows: given.map((entry) => ({
+                id: entry.id,
+                amount: entry.amount,
+                note: entry.note,
+                shop: entry.clientstore?.store_name,
+                counter: entry.counter?.name,
+                given_by: brief(entry.given_by_client),
+                created_at: entry.created_at,
             })),
             payments: payments.map((payment) => ({
                 id: payment.id,

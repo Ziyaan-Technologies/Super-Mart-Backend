@@ -10,6 +10,7 @@ import { ElectricCashMove, ElectricCashMoveType } from 'src/electric-counter/mod
 import { ElectricProductVariant } from 'src/electric-product/models/electric-product-variant.entity';
 import { ElectricCreditorEntry, ElectricCreditorEntryType } from 'src/electric-creditor/models/electric-creditor-entry.entity';
 import { ElectricCreditorPayment } from 'src/electric-creditor/models/electric-creditor-payment.entity';
+import { ElectricDebtorEntry } from 'src/electric-debtor/models/electric-debtor-entry.entity';
 import { ElectricPaymentMethod, ElectricSale, ElectricSaleStatus } from 'src/electric-sale/models/electric-sale.entity';
 import { ElectricSaleItem } from 'src/electric-sale/models/electric-sale-item.entity';
 import { ElectricBillPayment } from 'src/electric-sale/models/electric-bill-payment.entity';
@@ -180,6 +181,7 @@ export async function openSession(manager: EntityManager, actor: ElectricActor, 
 }
 
 export const SUPPLIER_REASON = 'Paid another shopkeeper';
+export const DEBTOR_REASON = 'Paid to debtor';
 
 export async function addCashMove(manager: EntityManager, actorId: number, session: ElectricCounterSession, body: any, at = new Date()) {
     if (session.status !== ElectricSessionStatus.OPEN) {
@@ -202,6 +204,19 @@ export async function addCashMove(manager: EntityManager, actorId: number, sessi
     if (String(body.reason).trim() === SUPPLIER_REASON && !creditorId) {
         throw new BadRequestException('Choose the shopkeeper this money is for');
     }
+    // money handed to a customer goes onto his khata, so it has to say which one
+    const debtorId = String(body.reason).trim() === DEBTOR_REASON ? Number(body.debtor_id) || 0 : 0;
+    if (String(body.reason).trim() === DEBTOR_REASON && !debtorId) {
+        throw new BadRequestException('Choose the customer this money is for');
+    }
+    let debtorName = '';
+    if (debtorId) {
+        const [debtor] = await manager.query('SELECT name FROM electric_debtors WHERE id = ? AND clientstore_id = ? AND is_active = 1', [debtorId, session.clientstore_id]);
+        if (!debtor) {
+            throw new BadRequestException('That customer is not on this shop\'s khata list');
+        }
+        debtorName = debtor.name;
+    }
     let creditorName = '';
     if (creditorId) {
         const [creditor] = await manager.query('SELECT name FROM electric_creditors WHERE id = ? AND clientstore_id = ? AND is_active = 1', [creditorId, session.clientstore_id]);
@@ -220,10 +235,24 @@ export async function addCashMove(manager: EntityManager, actorId: number, sessi
         type,
         reason: String(body.reason).trim(),
         amount,
-        note: [creditorName, body.note?.trim()].filter(Boolean).join(' · ') || null,
+        note: [creditorName || debtorName, body.note?.trim()].filter(Boolean).join(' · ') || null,
         created_by_client: { id: actorId },
         created_at: at,
     });
+    if (debtorId) {
+        await manager.save(ElectricDebtorEntry, {
+            debtor: { id: debtorId },
+            vendor: { id: session.vendor_id },
+            clientstore: { id: session.clientstore_id },
+            counter: { id: session.counter_id },
+            session: { id: session.id },
+            cash_move: { id: move.id },
+            amount,
+            note: body.note?.trim() || null,
+            given_by_client: { id: actorId },
+            created_at: at,
+        });
+    }
     if (creditorId) {
         await manager.save(ElectricCreditorPayment, {
             creditor: { id: creditorId },
