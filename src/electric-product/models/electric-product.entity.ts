@@ -9,7 +9,7 @@ import { ElectricProductVariant } from './electric-product-variant.entity';
 export enum ElectricUnit {
   PIECE = 'Piece',
   KG = 'Kg',
-  FOOT = 'Foot',
+  METER = 'Meter',
 }
 
 @Entity('electric_products')
