@@ -781,16 +781,14 @@ export async function payBill(manager: EntityManager, actor: ElectricActor, sale
     if (amount > owing) {
         throw new BadRequestException(`Only ${owing} is left on this bill`);
     }
-    if (!session || session.status !== ElectricSessionStatus.OPEN || session.clientstore_id !== sale.clientstore_id) {
-        throw new BadRequestException('Open your counter in this shop before taking a payment');
-    }
+    const open = session && session.status === ElectricSessionStatus.OPEN && session.clientstore_id === sale.clientstore_id ? session : null;
     const method = Object.values(ElectricPaymentMethod).includes(body.method) ? body.method : ElectricPaymentMethod.CASH;
     await manager.save(ElectricBillPayment, {
         sale: { id: sale.id },
         vendor: { id: sale.vendor_id },
         clientstore: { id: sale.clientstore_id },
-        counter: { id: session.counter_id },
-        session: { id: session.id },
+        counter: open ? { id: open.counter_id } : null,
+        session: open ? { id: open.id } : null,
         amount,
         method,
         note: body.note?.trim() || null,

@@ -402,7 +402,7 @@ export class ElectricProductService {
             .where('product.clientstore_id = :shopId AND product.is_active = 1', { shopId: shop.id })
             .orderBy('product.name', 'ASC')
             .getMany()).map((product) => this.productView(product));
-        const brands = (await this.brandRepository.find({ where: { clientstore: { id: shop.id }, is_active: true }, order: { name: 'ASC' } }))
+        const brands = (await this.brandRepository.find({ where: { clientstore: { id: shop.id }, is_active: true }, order: { sort_order: 'ASC', name: 'ASC' } }))
             .filter((brand) => products.some((product) => product.brand_id === brand.id));
         const categories = (await this.categoryRepository.find({ where: { clientstore: { id: shop.id }, is_active: true }, order: { sort_order: 'ASC', name: 'ASC' } }))
             .map((category) => {

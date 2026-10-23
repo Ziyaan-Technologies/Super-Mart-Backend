@@ -326,7 +326,6 @@ export class ElectricCreditorService {
         return this.detail(actor, creditor.id);
     }
 
-    /** a payment can only be changed while the counter it came out of is still open */
     private async editablePayment(creditorId: number, paymentId: any) {
         const payment = await this.paymentRepository.findOne({
             where: { id: Number(paymentId), creditor: { id: creditorId } },
@@ -334,9 +333,6 @@ export class ElectricCreditorService {
         });
         if (!payment) {
             throw new NotFoundException('Payment not found');
-        }
-        if (payment.session && payment.session.status !== ElectricSessionStatus.OPEN) {
-            throw new BadRequestException('This payment came out of a counter that is already closed, so it cannot be changed');
         }
         return payment;
     }
@@ -352,7 +348,7 @@ export class ElectricCreditorService {
         await this.dataSource.transaction(async (manager) => {
             if (payment.cash_move_id) {
                 const extra = roundAmount(amount - payment.amount);
-                if (extra > 0) {
+                if (extra > 0 && payment.session?.status === ElectricSessionStatus.OPEN) {
                     const totals = await sessionTotals(manager, payment.session);
                     if (extra > totals.cash_now) {
                         throw new BadRequestException('There is not that much cash left in the counter');

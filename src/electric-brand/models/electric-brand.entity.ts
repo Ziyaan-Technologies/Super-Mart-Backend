@@ -27,6 +27,9 @@ export class ElectricBrand {
   @Column({ nullable: true })
   image_url: string;
 
+  @Column({ default: 0 })
+  sort_order: number;
+
   @Column({ default: true })
   is_active: boolean;
 

@@ -30,6 +30,12 @@ export class ElectricBrandController {
     }
 
     @HasPermission('brands_edit')
+    @Post('v1/reorder')
+    reorder(@Actor() actor: AuthActor, @Body() body: { clientstore_id: number; ids: number[] }) {
+        return this.brandService.reorder(actor, body);
+    }
+
+    @HasPermission('brands_edit')
     @Put(':id')
     update(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: ElectricNamedUpdateDto) {
         return this.brandService.update(actor, Number(id), body);

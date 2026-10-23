@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { DataSource, Not, Repository } from 'typeorm';
+import { DataSource, In, Not, Repository } from 'typeorm';
 import { AuthActor } from './auth-actor';
 import { paginateQuery } from './document-list';
 import { ElectricListDto, ElectricNamedDto, ElectricNamedUpdateDto } from './electric.dto';
@@ -96,6 +96,23 @@ export abstract class ElectricNamedService {
             ...this.extraFields(body, row),
         });
         return this.repository.findOne({ where: { id: row.id } });
+    }
+
+    async reorder(actor: AuthActor, body: { clientstore_id: number; ids: number[] }) {
+        const shop = await this.access.shop(actor, body.clientstore_id);
+        const ids = (Array.isArray(body.ids) ? body.ids : []).map(Number).filter(Boolean);
+        if (!ids.length) {
+            throw new BadRequestException(`Nothing to arrange`);
+        }
+        if ((await this.repository.count({ where: { id: In(ids), clientstore: { id: shop.id } } })) !== new Set(ids).size) {
+            throw new BadRequestException(`Some of these do not belong to this shop`);
+        }
+        await this.dataSource.transaction(async (manager) => {
+            for (const [index, id] of ids.entries()) {
+                await manager.update(this.repository.target, id, { sort_order: index + 1 });
+            }
+        });
+        return { message: `${this.label} order saved` };
     }
 
     async remove(actor: AuthActor, id: number) {

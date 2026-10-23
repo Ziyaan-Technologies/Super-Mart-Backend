@@ -6,7 +6,6 @@ import { roundAmount } from 'src/common/decimal.transformer';
 import { ElectricListDto } from 'src/common/electric.dto';
 import { brief } from 'src/common/electric-document';
 import { ElectricAccessService } from 'src/electric-access/electric-access.service';
-import { ElectricSessionStatus } from 'src/electric-counter/models/electric-counter-session.entity';
 import { ElectricPaymentMethod, ElectricSale } from 'src/electric-sale/models/electric-sale.entity';
 import { ElectricDebtor } from './models/electric-debtor.entity';
 import { ElectricDebtorPayment } from './models/electric-debtor-payment.entity';
@@ -272,7 +271,6 @@ export class ElectricDebtorService {
         return this.detail(actor, debtor.id);
     }
 
-    /** a payment can only be changed while the counter that took it is still open */
     private async editablePayment(actor: AuthActor, debtorId: number, paymentId: any) {
         const payment = await this.paymentRepository.findOne({
             where: { id: Number(paymentId), debtor: { id: debtorId } },
@@ -280,9 +278,6 @@ export class ElectricDebtorService {
         });
         if (!payment) {
             throw new NotFoundException('Payment not found');
-        }
-        if (payment.session && payment.session.status !== ElectricSessionStatus.OPEN) {
-            throw new BadRequestException('This payment went into a counter that is already closed, so it cannot be changed');
         }
         return payment;
     }

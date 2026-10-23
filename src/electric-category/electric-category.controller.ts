@@ -30,6 +30,12 @@ export class ElectricCategoryController {
     }
 
     @HasPermission('categories_edit')
+    @Post('v1/reorder')
+    reorder(@Actor() actor: AuthActor, @Body() body: { clientstore_id: number; ids: number[] }) {
+        return this.categoryService.reorder(actor, body);
+    }
+
+    @HasPermission('categories_edit')
     @Put(':id')
     update(@Actor() actor: AuthActor, @Param('id') id: number, @Body() body: ElectricNamedUpdateDto) {
         return this.categoryService.update(actor, Number(id), body);
