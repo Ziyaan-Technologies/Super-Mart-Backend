@@ -6,6 +6,7 @@ import { Clientstore } from 'src/clientstore/models/clientstore.entity';
 import { BillDiscount, calculateBill } from './bill-calculator';
 import { ElectricCounter } from 'src/electric-counter/models/electric-counter.entity';
 import { ElectricCounterSession, ElectricSessionStatus } from 'src/electric-counter/models/electric-counter-session.entity';
+import { ClientType } from 'src/client/models/client.entity';
 import { ElectricCashMove, ElectricCashMoveType } from 'src/electric-counter/models/electric-cash-move.entity';
 import { ElectricProductVariant } from 'src/electric-product/models/electric-product-variant.entity';
 import { ElectricCreditorEntry, ElectricCreditorEntryType } from 'src/electric-creditor/models/electric-creditor-entry.entity';
@@ -26,6 +27,7 @@ export interface ElectricActor {
     id: number;
     vendor_id: number;
     electric_counter_id?: number | null;
+    client_type?: string | null;
 }
 
 export type Granted = Set<string> | null;
@@ -158,8 +160,13 @@ export async function openSession(manager: EntityManager, actor: ElectricActor, 
     if (await manager.findOne(ElectricCounterSession, { where: { counter: { id: counter.id }, status: ElectricSessionStatus.OPEN } })) {
         throw new BadRequestException(`${counter.name} is already open`);
     }
-    if (await manager.findOne(ElectricCounterSession, { where: { cashier: { id: actor.id }, status: ElectricSessionStatus.OPEN } })) {
-        throw new BadRequestException('You already have an open counter. Close it first.');
+    const owner = actor.client_type === ClientType.OWNER;
+    const mine: any = { cashier: { id: actor.id }, status: ElectricSessionStatus.OPEN };
+    if (owner) {
+        mine.clientstore = { id: counter.clientstore_id };
+    }
+    if (await manager.findOne(ElectricCounterSession, { where: mine })) {
+        throw new BadRequestException(owner ? 'You already have a counter open in this shop' : 'You already have an open counter. Close it first.');
     }
     if (actor.electric_counter_id && actor.electric_counter_id !== counter.id) {
         throw new BadRequestException('You can only open your own counter');

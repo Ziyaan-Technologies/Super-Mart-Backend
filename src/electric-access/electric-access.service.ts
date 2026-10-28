@@ -7,6 +7,7 @@ import { Clientstore } from 'src/clientstore/models/clientstore.entity';
 import { Client } from 'src/client/models/client.entity';
 import { PermissionType } from 'src/permission/permission.entity';
 import { RoleService } from 'src/role/role.service';
+import { ClientType } from 'src/client/models/client.entity';
 import { ElectricCounterSession, ElectricSessionStatus } from 'src/electric-counter/models/electric-counter-session.entity';
 
 @Injectable()
@@ -54,12 +55,12 @@ export class ElectricAccessService {
 
     async record(actor: AuthActor): Promise<ElectricActor> {
         const client = await this.clientRepository.findOne({ where: { id: actor.id } });
-        return { id: actor.id, vendor_id: actor.vendor_id, electric_counter_id: client?.electric_counter_id || null };
+        return { id: actor.id, vendor_id: actor.vendor_id, electric_counter_id: client?.electric_counter_id || null, client_type: client?.client_type || null };
     }
 
     /** khata money you take or give yourself: your own open counter if you have one, otherwise no counter at all */
     async cashSession(actor: AuthActor, shopId: number, requestedId?: any) {
-        const mine = await this.mySession(actor.id);
+        const mine = await this.mySession(actor, shopId);
         if (mine && (!requestedId || Number(requestedId) === mine.id)) {
             return mine;
         }
@@ -76,7 +77,7 @@ export class ElectricAccessService {
 
     /** the session a sale, return or payment should land on: your own, or any open one with pos_any_counter */
     async sessionFor(actor: AuthActor, shopId: number, requestedId?: any) {
-        const mine = await this.mySession(actor.id);
+        const mine = await this.mySession(actor, shopId);
         if (mine && (!requestedId || Number(requestedId) === mine.id)) {
             return mine;
         }
@@ -101,8 +102,12 @@ export class ElectricAccessService {
         });
     }
 
-    mySession(actorId: number) {
-        return this.sessionRepository.findOne({ where: { cashier: { id: actorId }, status: ElectricSessionStatus.OPEN } });
+    mySession(actor: Pick<AuthActor, 'id' | 'client_type'>, shopId?: number) {
+        const where: any = { cashier: { id: actor.id }, status: ElectricSessionStatus.OPEN };
+        if (shopId && actor.client_type === ClientType.OWNER) {
+            where.clientstore = { id: shopId };
+        }
+        return this.sessionRepository.findOne({ where });
     }
 
     async ownCounterId(actor: AuthActor) {
@@ -113,7 +118,7 @@ export class ElectricAccessService {
         if (record.electric_counter_id) {
             return record.electric_counter_id;
         }
-        return (await this.mySession(actor.id))?.counter_id || -1;
+        return (await this.mySession(actor))?.counter_id || -1;
     }
 
     async counterAllowed(actor: AuthActor, counterId: number | null) {

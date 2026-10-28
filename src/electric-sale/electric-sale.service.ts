@@ -292,7 +292,7 @@ export class ElectricSaleService {
         const shop = await this.access.shop(actor, clientstoreId);
         if (!(await this.access.can(actor, 'pending_costs_view'))) return { count: 0, mine: 0 };
         const items = await this.pendingItems(shop.id, { status: 'Pending', counterId: await this.access.ownCounterId(actor) });
-        const session = await this.access.mySession(actor.id);
+        const session = await this.access.mySession(actor, shop.id);
         return { count: items.length, mine: session ? items.filter((item) => item.session_id === session.id).length : 0 };
     }
 
