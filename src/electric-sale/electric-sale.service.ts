@@ -6,7 +6,7 @@ import { AuthActor } from 'src/common/auth-actor';
 import { paginateQuery } from 'src/common/document-list';
 import { roundAmount } from 'src/common/decimal.transformer';
 import { ElectricListDto } from 'src/common/electric.dto';
-import { brief, createSale, dayKey, deleteSale, editSale, isPending, payBill, paymentState, returnSale, saleProfit, setItemCost, shopView, vendorView } from 'src/common/electric-document';
+import { brief, createSale, dayKey, deleteSale, editSale, isPending, payBill, paymentState, removeBillPayment, returnSale, saleProfit, setItemCost, shopView, vendorView } from 'src/common/electric-document';
 import { Clientstore } from 'src/clientstore/models/clientstore.entity';
 import { ElectricAccessService } from 'src/electric-access/electric-access.service';
 import { ElectricQuotationService } from 'src/electric-quotation/electric-quotation.service';
@@ -188,6 +188,13 @@ export class ElectricSaleService {
         const record = await this.access.record(actor);
         const session = await this.access.sessionFor(actor, sale.clientstore_id, body.session_id);
         await this.dataSource.transaction((manager) => payBill(manager, record, sale.id, session, body));
+        return this.saleView(await this.saleRepository.findOne({ where: { id: sale.id }, relations: this.saleRelations }));
+    }
+
+    async removePayment(actor: AuthActor, id: number, paymentId: number) {
+        await this.access.need(actor, 'sales_payment', 'You cannot take payments on bills');
+        const sale = await this.seeSale(actor, id);
+        await this.dataSource.transaction((manager) => removeBillPayment(manager, sale.id, paymentId));
         return this.saleView(await this.saleRepository.findOne({ where: { id: sale.id }, relations: this.saleRelations }));
     }
 

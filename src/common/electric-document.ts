@@ -802,6 +802,20 @@ export async function payBill(manager: EntityManager, actor: ElectricActor, sale
     return sale.id;
 }
 
+export async function removeBillPayment(manager: EntityManager, saleId: number, paymentId: number) {
+    const sale = await manager.createQueryBuilder(ElectricSale, 'sale').setLock('pessimistic_write').where('sale.id = :saleId', { saleId }).getOne();
+    if (!sale) {
+        throw new NotFoundException('Bill not found');
+    }
+    const payment = await manager.findOne(ElectricBillPayment, { where: { id: paymentId, sale: { id: sale.id } } });
+    if (!payment) {
+        throw new NotFoundException('Payment not found');
+    }
+    await manager.delete(ElectricBillPayment, payment.id);
+    await manager.update(ElectricSale, sale.id, { khata_amount: roundAmount(sale.khata_amount + payment.amount) });
+    return sale.id;
+}
+
 export function paymentState(sale: { total_amount: number; paid_amount: number; khata_amount: number; due_date?: string | null; refunded_amount?: number }) {
     const owing = roundAmount(sale.khata_amount);
     const settled = roundAmount(sale.total_amount - owing);

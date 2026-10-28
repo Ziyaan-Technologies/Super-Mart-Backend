@@ -42,6 +42,12 @@ export class ElectricSaleController {
         return this.saleService.payBill(actor, Number(id), body);
     }
 
+    @HasPermission('sales_payment')
+    @Delete('sales/:id/payments/:paymentId')
+    removePayment(@Actor() actor: AuthActor, @Param('id') id: number, @Param('paymentId') paymentId: number) {
+        return this.saleService.removePayment(actor, Number(id), Number(paymentId));
+    }
+
     @HasPermission('debtors_create')
     @Get('sales/:id/debtor-match')
     matchDebtor(@Actor() actor: AuthActor, @Param('id') id: number) {
