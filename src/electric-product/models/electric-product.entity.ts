@@ -10,6 +10,7 @@ export enum ElectricUnit {
   PIECE = 'Piece',
   KG = 'Kg',
   METER = 'Meter',
+  BOX = 'Box',
 }
 
 @Entity('electric_products')
