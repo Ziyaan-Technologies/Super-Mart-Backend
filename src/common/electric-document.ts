@@ -546,18 +546,15 @@ export async function editSale(manager: EntityManager, actor: ElectricActor, sal
         throw new NotFoundException('Bill not found');
     }
     const session = await manager.findOne(ElectricCounterSession, { where: { id: sale.session_id } });
-    if (!session || session.status !== ElectricSessionStatus.OPEN) {
-        throw new BadRequestException('The counter this bill was made on is closed, so it cannot be changed. Make a return instead.');
-    }
-    if (granted && session.cashier_id !== actor.id && !granted.has('pos_any_counter')) {
+    if (granted && session?.status === ElectricSessionStatus.OPEN && session.cashier_id !== actor.id && !granted.has('pos_any_counter')) {
         throw new ForbiddenException('This counter is opened by someone else');
     }
     if (sale.status !== ElectricSaleStatus.COMPLETED || sale.refunded_amount > 0) {
         throw new BadRequestException('This bill has a return on it, so it cannot be changed');
     }
-    if (await manager.count(ElectricBillPayment, { where: { sale: { id: sale.id } } })) {
-        throw new BadRequestException('A payment has already been taken on this bill, so it cannot be changed');
-    }
+    const shopId = sale.clientstore_id;
+    const [{ later }] = await manager.query('SELECT COALESCE(SUM(amount), 0) AS later FROM electric_bill_payments WHERE sale_id = ?', [sale.id]);
+    const paidLater = roundAmount(parseFloat(later) || 0);
     const old = await manager.find(ElectricSaleItem, { where: { sale: { id: sale.id } } });
     for (const item of old.filter((row) => row.variant_id)) {
         await manager.increment(ElectricProductVariant, { id: item.variant_id }, 'stock', item.quantity);
@@ -567,21 +564,25 @@ export async function editSale(manager: EntityManager, actor: ElectricActor, sal
     if (discounts.some((discount) => discount.value > 0)) {
         need(granted, 'pos_bill_discount', 'You cannot give bill discounts');
     }
-    const lines = await prepareLines(manager, granted, session.clientstore_id, body.lines, true);
+    const lines = await prepareLines(manager, granted, shopId, body.lines, true);
     const { bill, items } = documentLines(lines, discounts);
+    if (bill.total < paidLater) {
+        throw new BadRequestException(`${paidLater} has already been received on this bill later, so the new total cannot be less than that`);
+    }
     const method = Object.values(ElectricPaymentMethod).includes(body.payment_method) ? body.payment_method : sale.payment_method;
     const debtor = body.debtor_id
-        ? await manager.findOne(ElectricDebtor, { where: { id: Number(body.debtor_id), clientstore: { id: session.clientstore_id } } })
+        ? await manager.findOne(ElectricDebtor, { where: { id: Number(body.debtor_id), clientstore: { id: shopId } } })
         : null;
     if (body.debtor_id && !debtor) {
         throw new NotFoundException('This customer is not on this shop\'s khata list');
     }
     const dueDate = String(body.due_date || '').trim() || null;
     const payLater = !!debtor || !!dueDate || body.paid_amount !== undefined;
+    const counterShare = roundAmount(bill.total - paidLater);
     const paid = payLater
-        ? roundAmount(Math.min(Math.max(Number(body.paid_amount) || 0, 0), bill.total))
-        : bill.total;
-    const khata = roundAmount(bill.total - paid);
+        ? roundAmount(Math.min(Math.max(Number(body.paid_amount) || 0, 0), counterShare))
+        : counterShare;
+    const khata = roundAmount(counterShare - paid);
     if (khata > 0) {
         need(granted, debtor ? 'pos_debtor_sale' : 'pos_pay_later', debtor
             ? 'You cannot put a bill on a khata'
