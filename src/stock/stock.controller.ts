@@ -148,8 +148,8 @@ export class StockController {
         const response = await this.stockService.stockList(await this.listFilter(actor, body), 1, 100000, body.sortBy);
         const columns = [
             { header: 'Product', key: 'product_name', width: 28 },
-            { header: 'Variant', key: 'variant_name', width: 18 },
-            { header: 'SKU', key: 'sku', width: 16 },
+            { header: 'Variant', key: 'variant_name', width: 18, pdf: false },
+            { header: 'SKU', key: 'sku', width: 16, pdf: false },
             { header: 'Category', key: 'category_name', width: 20 },
             { header: 'Warehouse', key: 'warehouse_quantity', width: 12 },
             { header: 'Mart', key: 'mart_quantity', width: 12 },

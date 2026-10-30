@@ -7,6 +7,7 @@ export interface ExportColumn {
     key: string;
     width?: number;
     value?: (row: any) => any;
+    pdf?: boolean;
 }
 
 @Injectable()
@@ -55,8 +56,9 @@ export class ExportService {
         res.end();
     }
 
-    pdf(res: Response, title: string, columns: ExportColumn[], rows: any[]) {
+    pdf(res: Response, title: string, allColumns: ExportColumn[], rows: any[]) {
         const PDFDocument = require('pdfkit');
+        const columns = allColumns.filter((column) => column.pdf !== false);
         const landscape = columns.length > 6;
         const doc = new PDFDocument({ margin: 30, size: 'A4', layout: landscape ? 'landscape' : 'portrait' });
         const fileName = title.replace(/\s+/g, '_');
@@ -66,28 +68,32 @@ export class ExportService {
         doc.fontSize(16).font('Helvetica-Bold').text(`${title} Report`, { align: 'center' });
         doc.moveDown(1);
         const usableWidth = doc.page.width - 60;
-        const colWidth = usableWidth / columns.length;
-        const bottomLimit = doc.page.height - 50;
+        const totalWeight = columns.reduce((sum, column) => sum + (column.width || 20), 0);
+        const widths = columns.map((column) => (usableWidth * (column.width || 20)) / totalWeight);
+        const offsets = widths.map((_, i) => 30 + widths.slice(0, i).reduce((sum, w) => sum + w, 0));
+        const bottomLimit = doc.page.height - 40;
         const drawHeader = (y: number) => {
             doc.font('Helvetica-Bold').fontSize(9);
+            const height = Math.max(...columns.map((column, i) => doc.heightOfString(column.header, { width: widths[i] - 4 })));
             columns.forEach((column, i) => {
-                doc.text(column.header, 30 + i * colWidth, y, { width: colWidth - 4 });
+                doc.text(column.header, offsets[i], y, { width: widths[i] - 4 });
             });
-            doc.moveTo(30, y + 15).lineTo(30 + usableWidth, y + 15).stroke();
-            return y + 20;
+            doc.moveTo(30, y + height + 3).lineTo(30 + usableWidth, y + height + 3).stroke();
+            doc.font('Helvetica').fontSize(8);
+            return y + height + 8;
         };
         let y = drawHeader(doc.y);
-        doc.font('Helvetica').fontSize(8);
         rows.forEach((row) => {
-            if (y > bottomLimit) {
+            const values = columns.map((column) => String(this.cellValue(column, row)));
+            const height = Math.max(...values.map((value, i) => doc.heightOfString(value, { width: widths[i] - 4 })));
+            if (y + height > bottomLimit) {
                 doc.addPage();
                 y = drawHeader(30);
-                doc.font('Helvetica').fontSize(8);
             }
-            columns.forEach((column, i) => {
-                doc.text(String(this.cellValue(column, row)), 30 + i * colWidth, y, { width: colWidth - 4, height: 14, ellipsis: true });
+            values.forEach((value, i) => {
+                doc.text(value, offsets[i], y, { width: widths[i] - 4 });
             });
-            y += 18;
+            y += height + 6;
         });
         doc.end();
     }

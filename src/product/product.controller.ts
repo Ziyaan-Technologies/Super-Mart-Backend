@@ -127,8 +127,8 @@ export class ProductController {
         const rows = response.data.flatMap((product: any) => product.variants.map((variant: any) => ({ ...variant, product })));
         const columns = [
             { header: 'Product', key: 'product', width: 28, value: (row: any) => row.product.name },
-            { header: 'Variant', key: 'name', width: 20 },
-            { header: 'SKU', key: 'sku', width: 16 },
+            { header: 'Variant', key: 'name', width: 20, pdf: false },
+            { header: 'SKU', key: 'sku', width: 16, pdf: false },
             { header: 'Barcode', key: 'barcode', width: 18 },
             { header: 'Category', key: 'category', width: 20, value: (row: any) => row.product.category?.name },
             { header: 'Brand', key: 'brand', width: 18, value: (row: any) => row.product.brand?.name },
